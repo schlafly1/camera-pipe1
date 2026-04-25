@@ -1,0 +1,40 @@
+# Generated data — never commit these
+snapshots/
+chroma_data/
+data/
+trt_engines/
+
+# Temp frame files written by multifilesink
+/tmp/cam*.jpg
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs and core dumps
+*.log
+core
+core.*
+
+# Local environment overrides
+.env
+.env.*
+*.override.yml

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vision Search</title>
+<style>
+:root {
+  --bg: #0f1117; --surface: #1a1d27; --border: #2d3147;
+  --accent: #4f6ef7; --text: #e2e4ef; --muted: #8890a8;
+  --person: #3aaa6e; --car: #e07b3a; --motorcycle: #9b6de0;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 24px; }
+h1 { font-size: 1.4rem; margin-bottom: 20px; color: #fff; letter-spacing: -0.01em; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+.row:last-child { margin-bottom: 0; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.field input, .field select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 8px 10px; font-size: 0.88rem;
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
+.field.grow { flex: 1; min-width: 220px; }
+.sort-group { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.sort-group label { display: flex; align-items: center; gap: 5px; font-size: 0.88rem; cursor: pointer; }
+.sort-group input[type=radio] { accent-color: var(--accent); }
+button[type=submit] {
+  background: var(--accent); color: #fff; border: none; border-radius: 6px;
+  padding: 9px 26px; font-size: 0.9rem; cursor: pointer; white-space: nowrap; height: 36px;
+}
+button[type=submit]:hover { background: #6a83f9; }
+button[type=submit]:disabled { opacity: 0.5; cursor: default; }
+
+#status { color: var(--muted); font-size: 0.88rem; margin-bottom: 16px; min-height: 1.4em; }
+
+#results { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.thumb-link { display: block; }
+.thumb { display: block; width: 100%; height: 180px; object-fit: cover; background: #111; }
+.no-img { width: 100%; height: 180px; background: #111; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.8rem; }
+.card-body { padding: 12px 14px; }
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.badge { font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.badge-person     { background: #1a3d2c; color: var(--person); }
+.badge-car        { background: #3d2610; color: var(--car); }
+.badge-motorcycle { background: #2a1b40; color: var(--motorcycle); }
+.badge-unknown    { background: #222; color: var(--muted); }
+.cam-label { font-size: 0.72rem; color: var(--muted); }
+.card-time { font-size: 0.75rem; color: var(--muted); margin-bottom: 7px; }
+.card-desc { font-size: 0.84rem; line-height: 1.55; }
+.card-foot { margin-top: 8px; font-size: 0.71rem; color: #555; display: flex; gap: 10px; }
+.card-foot span:last-child { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<h1>Vision Search</h1>
+
+<form class="panel" id="searchForm">
+  <div class="row">
+    <div class="field grow">
+      <label>Description</label>
+      <input type="text" id="text" placeholder="e.g. person in red shirt, white sedan…">
+    </div>
+    <div class="field">
+      <label>Camera</label>
+      <select id="camera">
+        <option value="">All cameras</option>
+        <option value="1">Camera 1</option>
+        <option value="2">Camera 2</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Label</label>
+      <select id="label">
+        <option value="">All labels</option>
+        <option value="person">Person</option>
+        <option value="car">Car</option>
+        <option value="motorcycle">Motorcycle</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Max results</label>
+      <input type="number" id="maxResults" value="20" min="1" max="200" style="width:76px">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="submit" id="searchBtn">Search</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="field">
+      <label>From (PDT)</label>
+      <input type="datetime-local" id="startTime">
+    </div>
+    <div class="field">
+      <label>To (PDT)</label>
+      <input type="datetime-local" id="endTime">
+    </div>
+    <div class="field" style="margin-left:8px">
+      <label>Sort</label>
+      <div class="sort-group">
+        <label><input type="radio" name="sort" value="relevance" checked> Relevance</label>
+        <label><input type="radio" name="sort" value="time_desc"> Newest</label>
+        <label><input type="radio" name="sort" value="time_asc"> Oldest</label>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div id="status"></div>
+<div id="results"></div>
+
+<script>
+const form    = document.getElementById('searchForm');
+const btn     = document.getElementById('searchBtn');
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  resultsEl.innerHTML = '';
+  statusEl.textContent = 'Searching…';
+  btn.disabled = true;
+
+  const params = new URLSearchParams({
+    text:       document.getElementById('text').value.trim(),
+    n:          document.getElementById('maxResults').value,
+    start_time: document.getElementById('startTime').value,
+    end_time:   document.getElementById('endTime').value,
+    sort_by:    document.querySelector('input[name=sort]:checked').value,
+    label:      document.getElementById('label').value,
+    camera_id:  document.getElementById('camera').value,
+  });
+
+  try {
+    const resp = await fetch('/query?' + params);
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = 'Error: ' + (data.detail || resp.statusText);
+      return;
+    }
+    const results = data.results || [];
+    statusEl.textContent = results.length
+      ? `${results.length} result${results.length === 1 ? '' : 's'}`
+      : 'No results found.';
+    resultsEl.innerHTML = results.map(card).join('');
+  } catch (err) {
+    statusEl.textContent = 'Request failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      timeZone: 'America/Los_Angeles',
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }) + ' PDT';
+  } catch { return iso; }
+}
+
+function badgeClass(label) {
+  return 'badge-' + ({'person':'person','car':'car','motorcycle':'motorcycle'}[label] || 'unknown');
+}
+
+function card(r) {
+  const img = r.image_url
+    ? `<a class="thumb-link" href="${r.image_url}" target="_blank">
+         <img class="thumb" src="${r.image_url}" loading="lazy" alt="${r.label || ''}">
+       </a>`
+    : `<div class="no-img">No snapshot</div>`;
+
+  const dist = r.distance != null ? `<span>dist&nbsp;${r.distance}</span>` : '';
+
+  return `
+<div class="card">
+  ${img}
+  <div class="card-body">
+    <div class="card-top">
+      <span class="badge ${badgeClass(r.label)}">${r.label || '?'}</span>
+      <span class="cam-label">camera&nbsp;${r.camera_id ?? '?'}</span>
+    </div>
+    <div class="card-time">${fmtTime(r.wall_time)}</div>
+    <div class="card-desc">${r.document || ''}</div>
+    <div class="card-foot">
+      <span>conf&nbsp;${r.confidence}</span>
+      ${dist}
+      <span>${r.id}</span>
+    </div>
+  </div>
+</div>`;
+}
+</script>
+</body>
+</html>

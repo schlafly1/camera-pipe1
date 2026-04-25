@@ -1,0 +1,47 @@
+x-deepstream: &deepstream
+  build: .
+  image: cam1-deepstream
+  runtime: nvidia
+  network_mode: host
+  privileged: true
+  volumes:
+    - /tmp/.X11-unix:/tmp/.X11-unix
+    - /etc/X11:/etc/X11
+    - /home/roger/.Xauthority:/root/.Xauthority:ro
+    - .:/workspace
+  working_dir: /workspace
+  stdin_open: true
+  tty: true
+  command: sleep infinity
+  depends_on:
+    - chromadb
+
+services:
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_data:/data
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    restart: unless-stopped
+
+  deepstream-cam1:
+    <<: *deepstream
+    environment:
+      DISPLAY: "${DISPLAY:-:1}"
+      XAUTHORITY: /root/.Xauthority
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CAMERA_ID: "1"
+      RTSP_URL: "rtsp://192.168.9.130:554/11"
+
+  deepstream-cam2:
+    <<: *deepstream
+    environment:
+      DISPLAY: "${DISPLAY:-:1}"
+      XAUTHORITY: /root/.Xauthority
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CAMERA_ID: "2"
+      RTSP_URL: "rtsp://192.168.9.161:554/11"

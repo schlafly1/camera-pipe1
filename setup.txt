@@ -1,0 +1,90 @@
+instructions for camera setup
+
+cd ~/sd/cam1
+
+docker compose -f cam1.yml build
+docker compose -f cam1.yml up -d
+
+# cam1 pipeline (terminal 1):
+docker exec -it cam1-deepstream-cam1-1 bash
+DISPLAY=:1 python3 pipeline2.py
+
+# cam2 pipeline (terminal 2):
+docker exec -it cam1-deepstream-cam2-1 bash
+DISPLAY=:1 python3 pipeline2.py
+
+# query server (terminal 3, either container):
+docker exec -it cam1-deepstream-cam1-1 bash
+python3 query_server.py
+
+Then open the search UI in your browser: http://localhost:8001/
+or on another box: http://thor:8001
+
+To kill docker:
+docker ps
+docker stop xx
+docker rm xx
+
+To kill a pipeline without the container:
+Open a second terminal on the host and kill it:
+docker exec cam1-deepstream-cam1-1 pkill -f pipeline.py
+
+in pgie_config.yml, set interval for frame skips
+so 0 to process every frame, 4 for every 5th frame
+
+in pipeline2.py, an object gets saved once every 5 seconds based on:
+SAVE_INTERVAL = 5.0
+
+● No need to docker rm. Here's the distinction that matters for your setup: 
+
+docker compose stop — stops containers, keeps them. The TRT engine (which 
+lives inside the container's writable layer) survives. Next docker compose up 
+-d resumes in seconds.
+
+docker compose down — stops AND removes containers. The TRT engine is gone. 
+Next startup rebuilds it from the ONNX file (~5 minutes). 
+
+So the right reboot workflow is:
+
+# optional — Docker stops containers gracefully on shutdown anyway
+docker compose -f cam1.yml stop 
+
+# ... reboot ...
+
+# after reboot, on host first:
+xhost +local:
+
+# bring containers back (chromadb auto-restarts due to restart:unless-stopped,
+# deepstream containers need this explicit up)
+docker compose -f cam1.yml up -d
+
+# then start the pipelines as usual 
+docker exec -it cam1-deepstream-cam1-1 bash # → DISPLAY=:1 python3 
+pipeline2.py
+docker exec -it cam1-deepstream-cam2-1 bash # → DISPLAY=:1 python3 
+pipeline2.py
+docker exec -it cam1-deepstream-cam1-1 bash # → python3 query_server.py
+
+The one time you'd use docker rm is if you rebuild the image (docker compose
+build) and want to force fresh containers from the new image — but even then
+docker compose up -d recreates containers automatically when the image
+changes, without a manual docker rm.
+
+To start fresh:
+sudo rm -rf /home/roger/sd/cam1/chroma_data/* 
+rm -rf /home/roger/sd/cam1/snapshots/*
+
+sudo is needed for chroma_data because the ChromaDB container writes those
+files as root. After clearing it, ChromaDB will recreate an empty database
+automatically on next startup — no container restart needed.
+
+to post:
+cd /home/roger/sd/cam1
+git init
+git add . 
+git status# verify snapshots/, chroma_data/, trt_engines/ are NOT 
+listed
+git commit -m "Initial commit"
+
+
+

@@ -1,0 +1,491 @@
+
+● All 5 files are created. Here's what to do, step by step:
+                                                                              
+  ---                                                                           
+  Step 1 — Start the containers
+                                                                                
+  cd /home/roger/sd/cam1                                                      
+  docker compose -f cam1.yml up -d                                              
+                                                                                
+  This starts ChromaDB (on localhost:8000) and the DeepStream container (idle,  
+  host networking).                                                             
+                                                                                
+  ---                                                                         
+  Step 2 — Install Python dependencies (once)
+                                                                                
+  docker compose -f cam1.yml exec deepstream bash
+                                                                                
+  Inside the container:                                                         
+  pip3 install --break-system-packages \
+    /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl \
+    chromadb ollama fastapi uvicorn pyyaml                                    
+                                                                                
+  ---
+  Step 3 — Run the single-camera pipeline                                       
+                                                                                
+  Still inside the container:
+  python3 pipeline.py                                                           
+                                                                              
+  - First run takes 2–5 minutes — TensorRT builds the engine from the ONNX
+  model. Subsequent runs are fast.                                              
+  - Every time a person is detected you'll see [PERSON] frame=... t=...s 
+  conf=...                                                                      
+  - Every 5 seconds (at most) it saves an embedding to ChromaDB and prints    
+  [Writer] Saved ...                                                            
+                                                                              
+  ---                                                                           
+  Step 4 — Run the query server (in a second terminal)                        
+                                                                                
+  docker compose -f cam1.yml exec deepstream bash
+  python3 query_server.py                                                       
+                                                                              
+  Then query from the host:                                                     
+  curl "http://localhost:8001/query?text=person+walking"
+                                                                                
+  Returns timestamps, wall times, and similarity scores of matching events.     
+                                                                                
+  ---                                                                           
+  Step 5 — Scale to 6 cameras                                                   
+                                                                              
+  Edit multi_cam.py — uncomment and fill in the RTSP URLs:
+                                                                                
+  RTSP_URLS = [
+      "rtsp://192.168.8.130:554/11",                                            
+      "rtsp://192.168.8.131:554/11",                                            
+      # ... up to 6
+  ]                                                                             
+                                                                              
+  Then run:                                                                     
+  python3 multi_cam.py                                                        
+                      
+  Each saved event includes source_id (0–5) in the ChromaDB metadata, so you can
+   tell which camera triggered it.                                              
+   
+  ---                                                                           
+  Key files summary
+
+  ┌─────────────────┬─────────────────────────────────────────┐
+  │      File       │                 Purpose                 │
+  ├─────────────────┼─────────────────────────────────────────┤
+  │ cam1.yml        │ Docker Compose: DeepStream + ChromaDB   │
+  ├─────────────────┼─────────────────────────────────────────┤
+  │ pgie_config.yml │ TrafficCamNet detector (Person=class 2) │                 
+  ├─────────────────┼─────────────────────────────────────────┤                 
+  │ pipeline.py     │ Single-camera pipeline → ChromaDB       │                 
+  ├─────────────────┼─────────────────────────────────────────┤                 
+  │ query_server.py │ FastAPI /query endpoint                 │
+  ├─────────────────┼─────────────────────────────────────────┤                 
+  │ multi_cam.py    │ Multi-camera pipeline (1–6 cams)        │
+  └─────────────────┴─────────────────────────────────────────┘                 
+   
+✻ Brewed for 6m 22s                                                             
+                                                                              
+※ recap: Created five files to build a DeepStream person-detection pipeline that
+   saves embeddings to ChromaDB and answers natural language queries via 
+  FastAPI. Next step: run `docker compose -f cam1.yml up -d` to start the       
+  containers. (disable recaps in /config)
+
+● The core error is EGL failed to initialize! Exiting... caused by the X11
+  authorization failures above it. On Jetson, DeepStream's GPU decode pipeline  
+  requires EGL even with fakesink — and the container can't reach the host X
+  server without explicit permission.
+                                                                                
+  Fix: run this on the Jetson HOST before starting the pipeline:                
+                                                                                
+  xhost +local:                                                                 
+                  
+  Then inside the container, make sure DISPLAY is set to :0 (the Jetson's local 
+  X server):
+                                                                                
+  DISPLAY=:0 python3 pipeline.py
+  
+  Resume this session with:
+claude --resume e662e8ff-7a00-4be1-a53a-724639545997
+
+~/.local/bin/claude --resume e662e8ff-7a00-4be1-a53a-724639545997
+
+                                             
+                                             
+  If you're SSHing into the Jetson and echo $DISPLAY shows nothing or a remote  
+  value, force it:                                                              
+                                                                                
+  export DISPLAY=:0
+  python3 pipeline.py
+
+  ---                                                                           
+  Also let me update cam1.yml to hard-code DISPLAY=:0 so you don't have to set
+  it manually each time:                                                        
+                  
+  Read 1 file (ctrl+o to expand)                                                
+                  
+● The yml already defaults to :0. The remaining non-fatal warnings are normal:
+                                                                              
+  ┌───────────────────────────────┬────────────────────────┬───────────────┐  
+  │            Warning            │         Cause          │ Action needed │ 
+  ├───────────────────────────────┼────────────────────────┼───────────────┤    
+  │ lsmod: command not found      │ Not in container PATH  │ None —        │    
+  │                               │                        │ harmless      │    
+  ├───────────────────────────────┼────────────────────────┼───────────────┤    
+  │ Argus Error / nvargus-daemon  │ CSI camera probe (not  │ None —        │    
+  │                               │ RTSP)                  │ harmless      │    
+  ├───────────────────────────────┼────────────────────────┼───────────────┤    
+  │ libnvdsgst_udp.so /           │ Optional UDP plugin    │ None —        │
+  │ librivermax.so                │ missing                │ harmless      │    
+  └───────────────────────────────┴────────────────────────┴───────────────┘
+                                                                                
+  Summary of what to do:                                                        
+   
+  # 1. On the Jetson host (once per session):                                   
+  xhost +local:                                                                 
+   
+  # 2. Restart your pipeline inside the container:                              
+  DISPLAY=:0 python3 pipeline.py
+                                                                                
+  If xhost is not available on your host, install it with:                      
+  sudo apt-get install -y x11-xserver-utils         
+
+
+gst-launch-1.0 uridecodebin uri=rtsp://192.168.8.130:554/11 ! fakesink sync=0
+
+rtsp://192.168.8.130:554/11
+https://getrealtime.com/rtsp-link-checker
+
+
+ping 192.168.8.130
+ip route get 192.168.8.130
+sudo tailscale up --accept-routes=false --hostname=thor
+
+ollama pull nomic-embed-text
+  docker compose -f cam1.yml up -d
+    docker compose -f cam1.yml exec deepstream bash
+    python3 pipeline.py
+
+
+● Install the one extra package needed, then run it:
+                                                                              
+  pip3 install --break-system-packages opencv-python-headless
+  python3 pipeline2.py                                                          
+                                                                                
+  ---                                                                           
+  How it works:                                                                 
+                                                                                
+  Camera → DeepStream (TrafficCamNet detects objects)
+         → ObjectDetector probe: queues bbox + metadata                         
+         → FrameCapture retriever: grabs raw frame, crops bbox → JPEG           
+         → vlm_worker thread:                                                   
+             1. Gemma4:26b looks at the crop → natural language description     
+             2. nomic-embed-text embeds that description                        
+             3. ChromaDB stores it                                            
+                                                                                
+  Example descriptions it will produce:                                         
+  - "A silver Honda sedan parked near the curb"
+  - "A person in a red jacket walking toward the entrance carrying a backpack"  
+  - "A white FedEx delivery van stopped in the loading zone"                  
+                                                                                
+  The existing query_server.py works unchanged — just query naturally:          
+  curl "http://localhost:8001/query?text=white+delivery+van"                    
+  curl "http://localhost:8001/query?text=person+with+backpack"    
+  
+  Installing collected packages: numpy, opencv-python-headless
+  Attempting uninstall: numpy
+    Found existing installation: numpy 1.26.4
+    Uninstalling numpy-1.26.4:
+      Successfully uninstalled numpy-1.26.4
+WARNING: Skipping /usr/local/lib/python3.12/dist-packages/numpy-1.26.4.dist-info due to invalid metadata entry 'name'
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+tritonserver 0.0.0 requires numpy<2, but you have numpy 2.4.4 which is incompatible.
+Successfully installed numpy-2.4.4 opencv-python-headless-4.13.0.92
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+
+  pip3 install --break-system-packages "numpy==1.26.4"                          
+  pip3 uninstall -y opencv-python-headless
+  pip3 install --break-system-packages Pillow     
+  
+                                                                                
+● The pip breakage is only inside the container — the host is fine. Since       
+  containers are stateless, just throw it away and recreate it.             
+                                                                                
+  Step 1 — Remove containers:                                                   
+  cd /home/roger/sd/cam1
+  docker compose -f cam1.yml down                                               
+                                 
+  Step 2 — Reboot:
+  sudo reboot                                                                   
+   
+  Step 3 — After reboot, start fresh:                                           
+  cd /home/roger/sd/cam1
+  xhost +local:         
+  docker compose -f cam1.yml up -d
+                                                                                
+  Step 4 — Exec in and install packages carefully this time:
+  docker compose -f cam1.yml exec deepstream bash                               
+                                                 
+  Inside the container, install in this order (Pillow instead of opencv, no     
+  manual numpy):                                                                
+  pip3 install --break-system-packages \
+    /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl \
+    pyyaml chromadb ollama fastapi uvicorn Pillow                               
+                                                                                
+  That's it — do not install numpy or opencv separately. The container's        
+  existing numpy 1.26.4 will stay intact and PyTorch will work correctly.       
+                  
+  Step 5 — Run:                                                                 
+  DISPLAY=:0 python3 pipeline2.py
+                                          
+ Resume this session with:
+ ~/.local/bin/claude --resume e662e8ff-7a00-4be1-a53a-724639545997
+
+  First, install ffmpeg inside the container:                                   
+                       
+  apt-get install -y ffmpeg
+  
+  
+    Before running it, install ffmpeg inside the container:
+                                                                                
+  apt-get install -y ffmpeg
+                                                                                
+  Then run as before:                                                         
+                                                                                
+  DISPLAY=:0 python3 pipeline2.py                                             
+
+  The flow: nvinfer probe detects an object → queues it → worker thread calls   
+  ffmpeg to grab a live JPEG → sends it to Gemma4:26b for description → embeds
+  with nomic-embed-text → saves to ChromaDB.   
+  
+  ❯ i did run that after reboot and before docker up. i got:                      
+  roger@thor:~/sd/cam1$ xhost +local:                                           
+  non-network local connections being added to access control list              
+                                                                                
+● The EGL warnings are non-fatal — DeepStream prints those even when things
+  work. The segfault is happening right after "Opening in BLOCKING MODE" which  
+  is the RTSP source connecting. Two likely causes:                             
+   
+  1. Try running again — the first run rebuilt the TRT engine (5 min build),    
+  which sometimes causes instability. The engine is now cached, so the second
+  run should be cleaner:                                                        
+                  
+  DISPLAY=:0 python3 pipeline2.py
+
+  2. If it crashes again, check if the camera is reachable — you rebooted, the  
+  camera might not be up yet:
+                                                                                
+  ping -c 3 192.168.9.130
+
+  Or test the stream directly with the ffmpeg you just installed:               
+   
+  ffprobe -rtsp_transport tcp -i rtsp://192.168.9.130:554/11 2>&1 | tail -5     
+                                                                                
+  The segfault at RTSP open is more likely a camera connectivity issue than an  
+  EGL issue — an unreachable RTSP host can corrupt the GStreamer pipeline state 
+  in some versions.     
+  
+   i did forget to start ollama. should i ollama run gemm4:26b ?                 
+                                                                
+● No — ollama run opens an interactive chat session. You just want the server   
+  running in the background:                                                    
+                                                                                
+  ollama serve &                                                                
+                                                                                
+  Or if Ollama is installed as a systemd service:                               
+   
+  systemctl start ollama                                                        
+                  
+  The models (gemma4:26b and nomic-embed-text) will load on demand when         
+  pipeline2.py calls them. No need to pre-load them manually.
+
+in the regular thor shell, ping and ffprobe work find. so does ffplay rtsp://192.168.9.130:554/11 as it opens a window with the camera feed. inside the container, i get this:
+root@thor:/workspace# ping -c 3 192.168.9.130
+bash: ping: command not found
+root@thor:/workspace# ffprobe -rtsp_transport tcp -i rtsp://192.168.9.130:554/11 2>&1 | tail -5 
+ffprobe: error while loading shared libraries: libavformat.so.60: cannot open shared object file: No such file or directory
+root@thor:/workspace# 
+
+ The ffprobe failure is just a stale library cache from the apt install. Fix it
+   with:
+                                                                                
+  ldconfig
+
+DISPLAY=:0 python3 pipeline2.py
+
+  First, test X11 access from inside the container:                             
+                                                                                
+  DISPLAY=:0 xdpyinfo 2>&1 | head -3 
+  
+  ● Now restart the container on the host (exit the container first, or open
+  another terminal):                                                          
+                 
+  docker compose down && docker compose up -d
+  docker exec -it cam1-deepstream-1 bash                                        
+   
+  Then inside the container, verify X11 works:                                  
+                                                                              
+  DISPLAY=:0 xdpyinfo 2>&1 | head -3                                            
+                                                                              
+  You should see something like name of display: :0. Then run:                  
+   
+DISPLAY=:0 python3 pipeline2.py    
+  
+pip3 install --break-system-packages \
+    /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl \
+    pyyaml chromadb ollama fastapi uvicorn Pillow
+
+apt-get install -y ffmpeg
+ldconfig
+apt-get install -y libavformat60 libavcodec60 libswscale7
+
+docker compose down && docker compose up -d                                   
+  docker exec -it cam1-deepstream-1 bash
+
+
+
+DISPLAY=:1 python3 pipeline2.py
+
+cd /home/roger/sd/cam1
+xhost +local:         
+docker compose -f cam1.yml up -d
+docker compose -f cam1.yml exec deepstream bash
+
+
+● Good news: the EGroot@thor:/workspace# DISPLAY=:1 gst-launch-1.0 -v nvurisrcbin uri=rtsp://192.168.9.130:554/11 !
+  "nvstreammux name=m batch-size=1 width=1920 height=1080" ! fakesink
+
+L error is completely gone this time — DISPLAY=:1 fixed that.
+   The crash is now happening in a different place (the RTSP connection open),
+  so let's isolate it.                                                          
+   
+  Run this quick test inside the container — it bypasses pyservicemaker entirely
+   and tests if the raw GStreamer RTSP pipeline works:
+                                                                                
+  DISPLAY=:1 gst-launch-1.0 -v nvurisrcbin uri=rtsp://192.168.9.130:554/11 !
+  "nvstreammux name=m batch-size=1 width=1920 height=1080" ! fakesink           
+   
+  Also try the simpler pipeline.py to see if it crashes the same way:           
+                  
+  DISPLAY=:1 python3 pipeline.py                                                
+                  
+  This will tell us quickly whether the crash is in the RTSP/GPU decode stack   
+  (environment issue) or something specific to pipeline2.py.
+
+Stopping pipeline.py: Ctrl+C doesn't reliably interrupt DeepStream. Open a    
+  second terminal on the host and kill it:
+                                                                                
+  docker exec cam1-deepstream-1 pkill -f pipeline.py
+                                                                                
+  That will kill it from outside, and your first terminal will return to a      
+  prompt.
+
+sed -n '198p' filename
+find /usr -name "libavformat.so*" 2>/dev/null
+find / -name "libavformat*" 2>/dev/null | head -20
+
+apt-get install --reinstall libavformat60
+find /usr -name "libavformat.so*"
+
+apt-get install --reinstall libavcodec60 libavutil58 libswscale7 libswresample4 libavfilter9 libavdevice60
+
+  If the container needs to be exec'd into first:                               
+  docker exec -it cam1-deepstream-1 bash                                        
+  cd /workspace                                                                 
+  DISPLAY=:1 python3 pipeline2.py   
+  
+    The JPEG-per-source problem: multifilesink writes frames in the order they    
+  arrive, interleaved across cameras. The source_id in the ObjectDetector probe 
+  tells you which camera triggered, so the VLM worker needs to find a JPEG that 
+  corresponds to that camera. The simplest fix is to write one multifilesink per
+   source using a tee — but pyservicemaker's .link() doesn't expose tee
+  natively.
+
+  Practical recommendation for now: run N separate processes (one per camera).  
+  The per-process overhead is small — TRT engine is cached on disk and
+  deserialized fast, and the inference runs on GPU which is shared anyway. With 
+  5–10 cameras on a Jetson Orin, this works fine. When you hit GPU memory
+  limits, switch to the batched single-pipeline approach.
+
+  To try the image storage, restart the pipeline and query server:              
+  # terminal 1 (pipeline):
+  DISPLAY=:1 python3 pipeline2.py                                               
+                                                                                
+  # terminal 2 (query server):
+  python3 query_server.py                                                       
+                         
+  Then query with images:
+  curl -s "http://localhost:8001/query?text=person+at+desk" | python3 -m  json.tool                                                             
+                                                                                
+  Each result will have "image_url": "/snapshots/cam1_src0_person_evt5.jpg" —
+  viewable at http://localhost:8001/snapshots/cam1_src0_person_evt5.jpg.  
+  
+Timezone note: if wall_time shows as UTC instead of PDT, tzdata isn't         
+  installed in the container. Fix with:                                         
+  apt-get install -y tzdata                                                     
+  # or                                                                        
+  pip install tzdata
+
+  Restart with two cameras:                                                     
+  # on host — recreate containers with new compose file
+  docker compose -f cam1.yml up -d                                              
+                                                                              
+  # cam1 pipeline (terminal 1):                                                 
+  docker exec -it cam1-deepstream-cam1-1 bash                                   
+  DISPLAY=:1 python3 pipeline2.py                                               
+                                                                                
+  # cam2 pipeline (terminal 2):
+  docker exec -it cam1-deepstream-cam2-1 bash                                   
+  DISPLAY=:1 python3 pipeline2.py                                             
+                                                                                
+  # query server (terminal 3, either container):
+  docker exec -it cam1-deepstream-cam1-1 bash                                   
+  python3 query_server.py                                                     
+                                                                                
+  Then open the search UI in your browser: http://localhost:8001/     
+  
+pip3 install --break-system-packages \
+    /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl \
+    pyyaml chromadb ollama fastapi uvicorn Pillow
+  ldconfig
+  
+  ❯ i accidentally ran this command on my host system, instead of the docker      
+  container. howto undo it? pip3 install --break-system-packages \              
+                                                                                
+  /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl \  
+      pyyaml chromadb ollama fastapi uvicorn Pillow                             
+                                                    
+● Since you didn't use sudo, those installed to your user site-packages         
+  (~/.local/), not to the system Python. The cleanest removal uses            
+  pip-autoremove to also catch the dependencies (chromadb alone pulls in 20+
+  packages):
+                                                                                
+  pip3 install --break-system-packages pip-autoremove
+  pip-autoremove -y pyservicemaker chromadb ollama fastapi uvicorn Pillow pyyaml
+  pip3 uninstall -y pip-autoremove                                              
+   
+  If pip-autoremove isn't found in your PATH after installing, it landed in     
+  ~/.local/bin/:  
+                                                                                
+  ~/.local/bin/pip-autoremove -y pyservicemaker chromadb ollama fastapi uvicorn
+  Pillow pyyaml                                                                 
+   
+  One caveat: pyyaml may have already been on your system before the accidental 
+  install. If pip-autoremove refuses to remove it (because something else
+  depends on it), that's fine — leave it.                                       
+                  
+  After running, verify nothing obviously system-level was pulled:              
+  pip3 list --user   # should be empty or near-empty
+
+  docker compose -f cam1.yml build        # ~3-5 min first time, cached after
+  docker compose -f cam1.yml up -d                                              
+                                                                                
+  After this, every container that starts from this compose file already has all
+   the packages installed. No manual pip install ever again.                    
+                                                                                
+  The build: . / image: cam1-deepstream pair means Docker Compose builds from   
+  the Dockerfile and tags the result cam1-deepstream. Both cam1 and cam2        
+  services share the same built image (it's only built once).  
+  
+  
+
+
+
+
+
+  
+                                          
