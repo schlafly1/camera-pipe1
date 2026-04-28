@@ -90,6 +90,44 @@ def fmt(r, doc_id, doc, meta, distance=None):
     }
 
 
+@app.get("/count")
+def count(
+    start_time: str = "",
+    end_time: str = "",
+    label: str = "",
+    camera_id: str = "",
+):
+    """Count events matching filters, broken down by label and camera."""
+    where = build_where(start_time, end_time, label, camera_id)
+
+    try:
+        collection = chroma_client.get_collection(COLLECTION_NAME)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
+
+    kwargs = {"include": ["metadatas"]}
+    if where:
+        kwargs["where"] = where
+    try:
+        results = collection.get(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
+
+    by_label  = {}
+    by_camera = {}
+    for meta in results["metadatas"]:
+        lbl = meta.get("label") or "unknown"
+        cam = str(meta.get("camera_id") or "?")
+        by_label[lbl]   = by_label.get(lbl, 0) + 1
+        by_camera[cam]  = by_camera.get(cam, 0) + 1
+
+    return {
+        "total":     len(results["ids"]),
+        "by_label":  dict(sorted(by_label.items())),
+        "by_camera": dict(sorted(by_camera.items())),
+    }
+
+
 @app.get("/")
 def serve_search():
     return FileResponse(SEARCH_HTML)

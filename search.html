@@ -34,6 +34,20 @@ button[type=submit] {
 }
 button[type=submit]:hover { background: #6a83f9; }
 button[type=submit]:disabled { opacity: 0.5; cursor: default; }
+#countBtn {
+  background: #2d3147; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+  padding: 9px 26px; font-size: 0.9rem; cursor: pointer; white-space: nowrap; height: 36px;
+}
+#countBtn:hover { background: #3a3f5c; }
+#countBtn:disabled { opacity: 0.5; cursor: default; }
+#countPanel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; display: none; }
+#countPanel h2 { font-size: 1rem; margin-bottom: 14px; color: #fff; }
+.count-grid { display: flex; gap: 24px; flex-wrap: wrap; }
+.count-section { flex: 1; min-width: 160px; }
+.count-section h3 { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.count-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+.count-row:last-child { border-bottom: none; }
+.count-val { font-weight: 600; color: var(--accent); }
 
 #status { color: var(--muted); font-size: 0.88rem; margin-bottom: 16px; min-height: 1.4em; }
 
@@ -92,6 +106,10 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
       <label>&nbsp;</label>
       <button type="submit" id="searchBtn">Search</button>
     </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="button" id="countBtn">Count</button>
+    </div>
   </div>
   <div class="row">
     <div class="field">
@@ -112,6 +130,20 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
     </div>
   </div>
 </form>
+
+<div id="countPanel">
+  <h2 id="countTitle"></h2>
+  <div class="count-grid">
+    <div class="count-section">
+      <h3>By label</h3>
+      <div id="countByLabel"></div>
+    </div>
+    <div class="count-section">
+      <h3>By camera</h3>
+      <div id="countByCamera"></div>
+    </div>
+  </div>
+</div>
 
 <div id="status"></div>
 <div id="results"></div>
@@ -171,6 +203,43 @@ function fmtTime(iso) {
 function badgeClass(label) {
   return 'badge-' + ({'person':'person','car':'car','motorcycle':'motorcycle'}[label] || 'unknown');
 }
+
+document.getElementById('countBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('countBtn');
+  btn.disabled = true;
+  const panel = document.getElementById('countPanel');
+  panel.style.display = 'none';
+
+  const params = new URLSearchParams({
+    start_time: document.getElementById('startTime').value,
+    end_time:   document.getElementById('endTime').value,
+    label:      document.getElementById('label').value,
+    camera_id:  document.getElementById('camera').value,
+  });
+
+  try {
+    const resp = await fetch('/count?' + params);
+    const data = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = 'Count error: ' + (data.detail || resp.statusText);
+      return;
+    }
+    document.getElementById('countTitle').textContent =
+      `${data.total} event${data.total === 1 ? '' : 's'} matched`;
+
+    const rows = (obj) => Object.entries(obj)
+      .map(([k, v]) => `<div class="count-row"><span>${k}</span><span class="count-val">${v}</span></div>`)
+      .join('') || '<div class="count-row"><span>—</span></div>';
+
+    document.getElementById('countByLabel').innerHTML  = rows(data.by_label);
+    document.getElementById('countByCamera').innerHTML = rows(data.by_camera);
+    panel.style.display = 'block';
+  } catch (err) {
+    statusEl.textContent = 'Count failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 function card(r) {
   const img = r.image_url
