@@ -31,11 +31,11 @@ except Exception:
     LOCAL_TZ = datetime.timezone(datetime.timedelta(hours=-7))  # PDT fallback
 
 # ── Config ────────────────────────────────────────────────────────────────────
-RTSP_URL      = os.environ.get("RTSP_URL", "rtsp://192.168.9.130:554/11")
+RTSP_URL      = os.environ.get("RTSP_URL", "")
 CHROMADB_HOST = "localhost"
 CHROMADB_PORT = 8000
 COLLECTION    = "vision_events"
-VLM_MODEL     = "gemma4:26b"
+VLM_MODEL     = os.environ.get("VLM_MODEL", "gemma4:26b")
 EMBED_MODEL   = "nomic-embed-text"
 SAVE_INTERVAL = 5.0
 VLM_QUEUE_MAX = 6       # drop detections when VLM is this far behind
@@ -46,14 +46,45 @@ CAMERA_ID     = int(os.environ.get("CAMERA_ID", "1"))
 JPEG_PATH     = f"/tmp/cam{CAMERA_ID}_%05d.jpg"
 JPEG_GLOB     = f"/tmp/cam{CAMERA_ID}_*.jpg"
 SNAPSHOT_DIR  = "/workspace/snapshots"
+# 0=UDP (default), 4=TCP — set RTSP_TRANSPORT=4 for cameras that require TCP
+RTSP_TRANSPORT = int(os.environ.get("RTSP_TRANSPORT", "0"))
 
 DETECT_CLASSES   = {0: "car", 1: "motorcycle", 2: "person"}
 DETECT_MIN_CONF  = {0: 0.50, 1: 0.50, 2: 0.30}  # raise car/moto threshold
 
 VLM_PROMPTS = {
-    0: "Describe this vehicle in one sentence: color, type (car/truck/van/SUV), and make or model if recognizable.",
-    1: "Describe this motorcycle or bicycle in one sentence: color, type, and rider if visible.",
-    2: "Describe this person in one sentence: appearance, clothing color, and what they are doing.",
+    # ── Car (class 0) ──────────────────────────────────────────────────────────
+    0: (
+        "Describe this vehicle in 2–3 sentences. Include: color, body style"
+        " (sedan/SUV/truck/van/coupe), make and model if recognizable, approximate"
+        " year range, any visible damage or distinctive markings, direction of travel,"
+        " and license plate text if legible."
+    ),
+    # Alternatives — uncomment to try:
+    # 0: "Describe this vehicle in one sentence: color, type (car/truck/van/SUV), and make or model if recognizable.",
+    # 0: "What vehicle is this? Give color, make/model if known, and one notable feature.",
+    #   "... Include the license plate number and state if it is legible; write 'plate not visible' if not." 
+
+    # ── Motorcycle / bicycle (class 1) ─────────────────────────────────────────
+    1: (
+        "Describe this motorcycle or bicycle in 2–3 sentences. Include: type"
+        " (sport/cruiser/dirt bike/bicycle/scooter), color, make if recognizable,"
+        " rider's helmet color and clothing, any passenger, and direction of travel."
+    ),
+    # Alternatives:
+    # 1: "Describe this motorcycle or bicycle in one sentence: color, type, and rider if visible.",
+    # 1: "What kind of two-wheeled vehicle is this, and what does the rider look like?",
+
+    # ── Person (class 2) ───────────────────────────────────────────────────────
+    2: (
+        "Describe this person in 2–3 sentences. Include: approximate age range and"
+        " gender, hair color and length, clothing (shirt/jacket color and style,"
+        " pants/skirt color, footwear), any accessories (backpack, hat, bag, phone),"
+        " what they are doing, and which direction they are moving."
+    ),
+    # Alternatives:
+    # 2: "Describe this person in one sentence: appearance, clothing color, and what they are doing.",
+    # 2: "Describe the person's appearance and behavior. Focus on clothing colors and any items they are carrying.",
 }
 
 
@@ -186,7 +217,7 @@ def main():
 
     pipeline = (
         Pipeline("cam1-vlm-pipeline")
-        .add("nvurisrcbin", "src", {"uri": RTSP_URL})
+        .add("nvurisrcbin", "src", {"uri": RTSP_URL, "select-rtp-protocol": RTSP_TRANSPORT})
         .add("nvstreammux", "mux", {
             "batch-size":           1,
             "width":                FRAME_W,

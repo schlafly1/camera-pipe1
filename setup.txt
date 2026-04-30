@@ -82,9 +82,61 @@ to post:
 cd /home/roger/sd/cam1
 git init
 git add . 
-git status# verify snapshots/, chroma_data/, trt_engines/ are NOT 
+git status# verify snapshots/, chroma_data/, ● Now you can switch models without touching any file — just set the env var
+  when running the pipeline:                                              
+                                                                                
+  # Use nemotron                               
+  VLM_MODEL=nemotron3:33b DISPLAY=:1 python3 pipeline2.py                       
+                                                                                
+  # Use gemma (default, no var needed)                                          
+  DISPLAY=:1 python3 pipeline2.py                                               
+                                                                                
+  Or add it to cam1.yml if you want one camera on each model permanently:       
+   
+    deepstream-cam1:                                                            
+      <<: *deepstream                                                           
+      environment:
+        ...                                                                     
+        VLM_MODEL: "nemotron3:33b"   trt_engines/ are NOT 
 listed
 git commit -m "Initial commit"
 
 
-
+● Now you can switch models without touching any file — just set the env var
+  when running the pipeline:                                              
+                                                                                
+  # Use nemotron                               
+  VLM_MODEL=nemotron3:33b DISPLAY=:1 python3 pipeline2.py                       
+                                                                                
+  # Use gemma (default, no var needed)                                          
+  DISPLAY=:1 python3 pipeline2.py                                               
+                                                                                
+  Or add it to cam1.yml if you want one camera on each model permanently:       
+   
+    deepstream-cam1:                                                            
+      <<: *deepstream                                                           
+      environment:
+        ...                                                                     
+        VLM_MODEL: "nemotron3:33b"
+        
+        ● My mistake — ollama's CLI doesn't have an --image flag. The easiest test is a 
+  small Python snippet using the library that's already installed:
+                                                                                
+  import ollama, base64
+                                                                                
+  with open("/workspace/snapshots/cam1_src0_car_evt1.jpg", "rb") as f:          
+      b64 = base64.b64encode(f.read()).decode()                                 
+                                                                                
+  resp = ollama.chat(                                                           
+      model="nemotron3:33b",
+      messages=[{"role": "user", "content": "Describe what you see in this      
+  image.", "images": [b64]}],                                                   
+  )
+  print(resp["message"]["content"])                                             
+                  
+  Pick any snapshot you already have in /workspace/snapshots/ and run this      
+  inside the container. If it returns a real description, vision works. If it
+  ignores the image or throws an error about unsupported modality, it's         
+  text-only.   
+  
+  

@@ -142,6 +142,7 @@ def query(
     sort_by: str = "relevance",
     label: str = "",
     camera_id: str = "",
+    search_type: str = "semantic",
 ):
     where = build_where(start_time, end_time, label, camera_id)
 
@@ -151,10 +152,27 @@ def query(
         raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
 
     output = []
+    t = text.strip()
 
-    if text.strip():
+    if t and search_type == "exact":
+        kwargs = {
+            "where_document": {"$contains": t},
+            "limit": n,
+            "include": ["documents", "metadatas"],
+        }
+        if where:
+            kwargs["where"] = where
         try:
-            resp = ollama.embeddings(model=OLLAMA_MODEL, prompt=text.strip())
+            results = collection.get(**kwargs)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"ChromaDB get error: {e}")
+
+        for i, doc_id in enumerate(results["ids"]):
+            output.append(fmt(None, doc_id, results["documents"][i], results["metadatas"][i]))
+
+    elif t:
+        try:
+            resp = ollama.embeddings(model=OLLAMA_MODEL, prompt=t)
             embedding = resp["embedding"]
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Ollama error: {e}")
@@ -175,6 +193,7 @@ def query(
                 results["metadatas"][0][i],
                 results["distances"][0][i],
             ))
+
     else:
         kwargs = {"limit": n, "include": ["documents", "metadatas"]}
         if where:

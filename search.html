@@ -87,6 +87,8 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
         <option value="">All cameras</option>
         <option value="1">Camera 1</option>
         <option value="2">Camera 2</option>
+        <option value="3">Camera 3</option>
+        <option value="4">Camera 4</option>
       </select>
     </div>
     <div class="field">
@@ -119,6 +121,13 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
     <div class="field">
       <label>To (PDT)</label>
       <input type="datetime-local" id="endTime">
+    </div>
+    <div class="field" style="margin-left:8px">
+      <label>Search type</label>
+      <div class="sort-group">
+        <label><input type="radio" name="search_type" value="semantic" checked> Semantic</label>
+        <label><input type="radio" name="search_type" value="exact"> Exact text</label>
+      </div>
     </div>
     <div class="field" style="margin-left:8px">
       <label>Sort</label>
@@ -161,13 +170,14 @@ form.addEventListener('submit', async (e) => {
   btn.disabled = true;
 
   const params = new URLSearchParams({
-    text:       document.getElementById('text').value.trim(),
-    n:          document.getElementById('maxResults').value,
-    start_time: document.getElementById('startTime').value,
-    end_time:   document.getElementById('endTime').value,
-    sort_by:    document.querySelector('input[name=sort]:checked').value,
-    label:      document.getElementById('label').value,
-    camera_id:  document.getElementById('camera').value,
+    text:        document.getElementById('text').value.trim(),
+    n:           document.getElementById('maxResults').value,
+    start_time:  document.getElementById('startTime').value,
+    end_time:    document.getElementById('endTime').value,
+    sort_by:     document.querySelector('input[name=sort]:checked').value,
+    label:       document.getElementById('label').value,
+    camera_id:   document.getElementById('camera').value,
+    search_type: document.querySelector('input[name=search_type]:checked').value,
   });
 
   try {

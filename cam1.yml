@@ -35,7 +35,8 @@ services:
       XAUTHORITY: /root/.Xauthority
       NVIDIA_DRIVER_CAPABILITIES: all
       CAMERA_ID: "1"
-      RTSP_URL: "rtsp://192.168.9.130:554/11"
+      RTSP_URL: "${RTSP_URL_CAM1}"
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
 
   deepstream-cam2:
     <<: *deepstream
@@ -44,4 +45,26 @@ services:
       XAUTHORITY: /root/.Xauthority
       NVIDIA_DRIVER_CAPABILITIES: all
       CAMERA_ID: "2"
-      RTSP_URL: "rtsp://192.168.9.161:554/11"
+      RTSP_URL: "${RTSP_URL_CAM2}"
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+
+  deepstream-cam3:
+    <<: *deepstream
+    environment:
+      DISPLAY: "${DISPLAY:-:1}"
+      XAUTHORITY: /root/.Xauthority
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CAMERA_ID: "3"
+      RTSP_URL: "${RTSP_URL_CAM3}"
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+
+  deepstream-cam4:
+    <<: *deepstream
+    environment:
+      DISPLAY: "${DISPLAY:-:1}"
+      XAUTHORITY: /root/.Xauthority
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CAMERA_ID: "4"
+      RTSP_URL: "${RTSP_URL_CAM4}"
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      RTSP_TRANSPORT: "4"

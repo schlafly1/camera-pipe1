@@ -1,44 +1,56 @@
 # Adding More Cameras
 
-Adding a camera requires changes to exactly two files, then one shell command.
+Adding a camera requires changes to exactly three files, then one shell command.
 No changes to pipeline2.py, query_server.py, or pgie_config.yml.
 
 ---
 
-## File 1 — cam1.yml
+## File 1 — .env
 
-Add one service block per camera, following the same pattern as cam1 and cam2.
-Replace the IP address and camera number throughout.
+Add one URL per camera. Comment out alternatives you are not using — Docker Compose
+uses the **first** occurrence of a duplicate key, not the last.
 
-```yaml
-  deepstream-cam3:
-    <<: *deepstream
-    environment:
-      DISPLAY: "${DISPLAY:-:1}"
-      XAUTHORITY: /root/.Xauthority
-      NVIDIA_DRIVER_CAPABILITIES: all
-      CAMERA_ID: "3"
-      RTSP_URL: "rtsp://192.168.9.XXX:554/11"
+```
+# CAM5 — choose one stream
+# RTSP_URL_CAM5=rtsp://user:password@192.168.x.x:554/main
+RTSP_URL_CAM5=rtsp://user:password@192.168.x.x:554/sub
+```
 
-  deepstream-cam4:
-    <<: *deepstream
-    environment:
-      DISPLAY: "${DISPLAY:-:1}"
-      XAUTHORITY: /root/.Xauthority
-      NVIDIA_DRIVER_CAPABILITIES: all
-      CAMERA_ID: "4"
-      RTSP_URL: "rtsp://192.168.9.XXX:554/11"
+To switch VLM model for all cameras at once, edit this block:
+```
+# VLM_MODEL=gemma4:26b
+VLM_MODEL=nemotron3:33b
 ```
 
 ---
 
-## File 2 — search.html
+## File 2 — cam1.yml
+
+Add one service block per camera, following the same pattern as the existing ones.
+If the camera requires TCP (i.e. ffplay only works with -rtsp_transport tcp), add
+`RTSP_TRANSPORT: "4"`.
+
+```yaml
+  deepstream-cam5:
+    <<: *deepstream
+    environment:
+      DISPLAY: "${DISPLAY:-:1}"
+      XAUTHORITY: /root/.Xauthority
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CAMERA_ID: "5"
+      RTSP_URL: "${RTSP_URL_CAM5}"
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      # RTSP_TRANSPORT: "4"   # uncomment if camera requires TCP
+```
+
+---
+
+## File 3 — search.html
 
 Find the camera `<select>` block (around line 73) and add one `<option>` per new camera:
 
 ```html
-<option value="3">Camera 3</option>
-<option value="4">Camera 4</option>
+<option value="5">Camera 5</option>
 ```
 
 ---
@@ -53,12 +65,9 @@ docker compose -f cam1.yml up -d
 # First run only: TRT engine builds inside each new container (~5 min each).
 # You will see "deserializing trt engine" in the log when it is ready.
 
-# Start each camera pipeline in its own terminal:
-docker exec -it cam1-deepstream-cam3-1 bash
-DISPLAY=:1 python3 pipeline2.py
-
-docker exec -it cam1-deepstream-cam4-1 bash
-DISPLAY=:1 python3 pipeline2.py
+# Start each camera pipeline in its own terminal (DISPLAY is set in .env):
+docker exec -it cam1-deepstream-cam5-1 bash
+python3 pipeline2.py
 ```
 
 ---
@@ -75,6 +84,8 @@ DISPLAY=:1 python3 pipeline2.py
 - GPU load: each camera runs nvinfer at ~6 fps (interval=4 in pgie_config.yml).
   A Jetson Orin handles 4–6 cameras comfortably at this rate. If you see lag,
   increase the interval value or raise SAVE_INTERVAL in pipeline2.py.
-- The VLM (Gemma4:26b) is shared across all cameras via the event queue in each
-  pipeline process. Each process has its own queue and its own VLM calls — they
-  run independently and may compete for GPU memory. Monitor with `tegrastats`.
+- The VLM model is shared across all cameras via the VLM_MODEL env var in .env.
+  Each pipeline process has its own queue and its own VLM calls — they run
+  independently and may compete for GPU memory. Monitor with `tegrastats`.
+- TCP transport (RTSP_TRANSPORT=4) is needed for cameras where only
+  `ffplay -rtsp_transport tcp` works. Dahua cameras often require this.
