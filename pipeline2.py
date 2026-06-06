@@ -203,21 +203,19 @@ def vlm_worker(event_queue):
             print(f"[VLM Worker] Error evt={det['event_id']}: {e}")
 
 
+RECONNECT_INTERVAL = 5   # seconds nvurisrcbin waits before reconnecting
+RESTART_DELAY      = 10  # seconds to wait before rebuilding the pipeline
+
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
-def main():
-    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
-
-    event_queue = queue.Queue()
-    detector    = ObjectDetector(event_queue)
-
-    worker = threading.Thread(
-        target=vlm_worker, args=(event_queue,), daemon=True
-    )
-    worker.start()
-
-    pipeline = (
+def build_pipeline(detector):
+    return (
         Pipeline("cam1-vlm-pipeline")
-        .add("nvurisrcbin", "src", {"uri": RTSP_URL, "select-rtp-protocol": RTSP_TRANSPORT})
+        .add("nvurisrcbin", "src", {
+            "uri":                    RTSP_URL,
+            "select-rtp-protocol":    RTSP_TRANSPORT,
+            "rtsp-reconnect-interval": RECONNECT_INTERVAL,
+        })
         .add("nvstreammux", "mux", {
             "batch-size":           1,
             "width":                FRAME_W,
@@ -238,8 +236,30 @@ def main():
         .attach("infer", Probe("detector", detector))
     )
 
+
+def main():
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+
+    event_queue = queue.Queue()
+    detector    = ObjectDetector(event_queue)
+
+    worker = threading.Thread(
+        target=vlm_worker, args=(event_queue,), daemon=True
+    )
+    worker.start()
+
     try:
-        pipeline.start().wait()
+        while True:
+            print(f"[Main] Starting pipeline for cam{CAMERA_ID}...")
+            pipeline = build_pipeline(detector)
+            try:
+                pipeline.start().wait()
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"[Main] Pipeline error: {e}")
+            print(f"[Main] Pipeline stopped, restarting in {RESTART_DELAY}s...")
+            time.sleep(RESTART_DELAY)
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:

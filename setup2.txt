@@ -1,0 +1,54 @@
+instructions for camera setup
+
+shutdown unused docker apps
+
+get 4 network cameras
+test with
+sudo apt install ffmpeg
+ffplay 'rtsp://admin:password@ipaddr:554/substream'
+
+put the rtsp urls in .env
+verify that display is :1, not :0
+
+cd ~/sd/cam1
+xhost +local:
+docker compose -f cam1.yml build
+docker compose -f cam1.yml up -d
+
+open 5 terminal windows
+in 4:
+docker exec -it cam1-deepstream-cam1-1 bash
+docker exec -it cam1-deepstream-cam2-1 bash
+docker exec -it cam1-deepstream-cam3-1 bash
+docker exec -it cam1-deepstream-cam4-1 bash
+python3 pipeline2.py
+
+in 5th:
+docker exec -it cam1-deepstream-cam1-1 bash
+python3 query_server.py
+### Shutdown
+
+# optional — Docker stops containers gracefully on shutdown anyway
+docker compose -f cam1.yml stop 
+
+To kill docker:
+docker ps
+docker stop xx
+docker rm xx
+
+To kill a pipeline without the container:
+Open a second terminal on the host and kill it:
+docker exec cam1-deepstream-cam1-1 pkill -f pipeline2.py
+
+To start fresh:
+sudo rm -rf /home/roger/sd/cam1/chroma_data/* 
+rm -rf /home/roger/sd/cam1/snapshots/*
+
+### Configuration
+
+in pgie_config.yml, set interval for frame skips
+so 0 to process every frame, 4 for every 5th frame
+
+in pipeline2.py, an object gets saved once every 5 seconds based on:
+SAVE_INTERVAL = 5.0
+

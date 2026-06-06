@@ -1,9 +1,29 @@
 instructions for camera setup
 
-cd ~/sd/cam1
+get 4 network cameras
+test with
+sudo apt install ffmpeg
+ffplay 'rtsp://admin:password@ipaddr:554/substream'
 
+put the rtsp urls in .env
+verify that display is :1, not :0
+
+cd ~/sd/cam1
+xhost +local:
 docker compose -f cam1.yml build
 docker compose -f cam1.yml up -d
+
+open 5 terminal windows
+in 4:
+docker exec -it cam1-deepstream-cam1-1 bash
+docker exec -it cam1-deepstream-cam2-1 bash
+docker exec -it cam1-deepstream-cam3-1 bash
+docker exec -it cam1-deepstream-cam4-1 bash
+python3 pipeline2.py
+
+in 5th:
+docker exec -it cam1-deepstream-cam1-1 bash
+python3 query_server.py
 
 # cam1 pipeline (terminal 1):
 docker exec -it cam1-deepstream-cam1-1 bash
@@ -20,6 +40,11 @@ python3 query_server.py
 Then open the search UI in your browser: http://localhost:8001/
 or on another box: http://thor:8001
 
+### Shutdown
+
+# optional — Docker stops containers gracefully on shutdown anyway
+docker compose -f cam1.yml stop 
+
 To kill docker:
 docker ps
 docker stop xx
@@ -27,7 +52,13 @@ docker rm xx
 
 To kill a pipeline without the container:
 Open a second terminal on the host and kill it:
-docker exec cam1-deepstream-cam1-1 pkill -f pipeline.py
+docker exec cam1-deepstream-cam1-1 pkill -f pipeline2.py
+
+To start fresh:
+sudo rm -rf /home/roger/sd/cam1/chroma_data/* 
+rm -rf /home/roger/sd/cam1/snapshots/*
+
+### Configuration
 
 in pgie_config.yml, set interval for frame skips
 so 0 to process every frame, 4 for every 5th frame
@@ -79,7 +110,7 @@ files as root. After clearing it, ChromaDB will recreate an empty database
 automatically on next startup — no container restart needed.
 
 to post:
-cd /home/roger/sd/cam1
+cd ~/sd/cam1
 git init
 git add . 
 git status# verify snapshots/, chroma_data/, ● Now you can switch models without touching any file — just set the env var
@@ -139,4 +170,56 @@ git commit -m "Initial commit"
   ignores the image or throws an error about unsupported modality, it's         
   text-only.   
   
-  
+  ❯ i freqently get pop-up warnings on my jetson thor saying "system throttled    
+  due to over-current". maybe one a minute. should i be concerned about this?   
+  what to do?                                                                   
+                                                                                
+● Yes, you should take it seriously. "Over-current" on a Jetson Thor means the  
+  system is drawing more power than the power supply can cleanly deliver, and   
+  the firmware is throttling the CPU/GPU to protect itself.
+
+  What's likely happening                                                       
+   
+  Running 3-4 camera pipelines simultaneously plus Gemma/Nemotron inference is a
+   heavy GPU workload. The Jetson Thor has a maximum TDP in the 60-80W range,
+  and your tegrastats already showed 66W draw at peak. If your power supply is  
+  undersized or the cable/connector has resistance, momentary spikes trip the
+  over-current protection.
+
+  What to check first
+
+  # See current power mode and limits                                           
+  sudo nvpmodel -q
+                                                                                
+  # Watch power draw live while pipeline is running                             
+  tegrastats | grep -o 'VIN [0-9]*mW/[0-9]*mW'                                  
+                                                                                
+  The VIN (total input) current reading is what matters. If it's regularly      
+  hitting your supply's rated limit, you're at the edge.                        
+                                                                                
+  Things to do    
+
+  1. Check your power supply — the Thor developer kit spec calls for a specific 
+  supply (typically 19V, high amperage). A generic or borderline supply will
+  struggle under GPU load. Verify yours matches the official spec.              
+  2. Set a lower power mode to cap total draw:
+  sudo nvpmodel -m 2   # try mode 2 or 3 — lower power ceiling                  
+  sudo jetson_clocks --restore                                                  
+  2. Run nvpmodel -q --verbose to see all available modes and their wattage     
+  caps.                                                                         
+  3. Stagger pipeline startup — don't start all 4 camera containers
+  simultaneously. Each TRT engine build spikes power. Start them 30-60 seconds  
+  apart.          
+  4. Raise SAVE_INTERVAL in pipeline2.py — currently 5 seconds. Raising it to   
+  10-15 reduces how often Gemma fires, which smooths out GPU power spikes.      
+  5. Check the power connector — on dev kits a loose or thin barrel connector
+  can cause voltage sag under load even with a good supply, which the firmware  
+  reads as over-current.
+                                                                                
+  The throttling itself won't damage anything — that's what it's designed to    
+  prevent. But if it's happening every minute it means you're regularly hitting
+  the limit, and sustained operation in that state will cause dropped frames and
+   slow inference. Worth fixing before adding more cameras.
+
+
+
