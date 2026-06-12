@@ -14,7 +14,8 @@ x-deepstream: &deepstream
   tty: true
   command: sleep infinity
   depends_on:
-    - chromadb
+    chromadb:
+      condition: service_healthy
 
 services:
   chromadb:
@@ -27,6 +28,12 @@ services:
       IS_PERSISTENT: "TRUE"
       ANONYMIZED_TELEMETRY: "FALSE"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   deepstream-cam1:
     <<: *deepstream
@@ -37,6 +44,8 @@ services:
       CAMERA_ID: "1"
       RTSP_URL: "${RTSP_URL_CAM1}"
       VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      RTSP_TRANSPORT: "${RTSP_TRANSPORT_CAM1:-0}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://localhost:11434}"
 
   deepstream-cam2:
     <<: *deepstream
@@ -47,6 +56,8 @@ services:
       CAMERA_ID: "2"
       RTSP_URL: "${RTSP_URL_CAM2}"
       VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      RTSP_TRANSPORT: "${RTSP_TRANSPORT_CAM2:-0}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://localhost:11434}"
 
   deepstream-cam3:
     <<: *deepstream
@@ -57,6 +68,8 @@ services:
       CAMERA_ID: "3"
       RTSP_URL: "${RTSP_URL_CAM3}"
       VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      RTSP_TRANSPORT: "${RTSP_TRANSPORT_CAM3:-0}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://localhost:11434}"
 
   deepstream-cam4:
     <<: *deepstream
@@ -67,4 +80,5 @@ services:
       CAMERA_ID: "4"
       RTSP_URL: "${RTSP_URL_CAM4}"
       VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
-      RTSP_TRANSPORT: "4"
+      RTSP_TRANSPORT: "${RTSP_TRANSPORT_CAM4:-0}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://localhost:11434}"

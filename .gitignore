@@ -3,6 +3,7 @@ snapshots/
 chroma_data/
 data/
 trt_engines/
+stats/
 
 # Temp frame files written by multifilesink
 /tmp/cam*.jpg

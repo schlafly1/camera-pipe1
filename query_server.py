@@ -76,7 +76,7 @@ def build_where(start_time: str, end_time: str, label: str, camera_id: str = "")
     return conditions[0] if len(conditions) == 1 else {"$and": conditions}
 
 
-def fmt(r, doc_id, doc, meta, distance=None):
+def fmt(doc_id, doc, meta, distance=None):
     return {
         "id":          doc_id,
         "wall_time":   meta.get("wall_time"),
@@ -168,7 +168,7 @@ def query(
             raise HTTPException(status_code=503, detail=f"ChromaDB get error: {e}")
 
         for i, doc_id in enumerate(results["ids"]):
-            output.append(fmt(None, doc_id, results["documents"][i], results["metadatas"][i]))
+            output.append(fmt(doc_id, results["documents"][i], results["metadatas"][i]))
 
     elif t:
         try:
@@ -187,7 +187,6 @@ def query(
 
         for i, doc_id in enumerate(results["ids"][0]):
             output.append(fmt(
-                None,
                 doc_id,
                 results["documents"][0][i],
                 results["metadatas"][0][i],
@@ -204,7 +203,7 @@ def query(
             raise HTTPException(status_code=503, detail=f"ChromaDB get error: {e}")
 
         for i, doc_id in enumerate(results["ids"]):
-            output.append(fmt(None, doc_id, results["documents"][i], results["metadatas"][i]))
+            output.append(fmt(doc_id, results["documents"][i], results["metadatas"][i]))
 
     if sort_by == "time_desc":
         output.sort(key=lambda x: x["wall_time_s"] or 0, reverse=True)
