@@ -384,8 +384,10 @@ def build_pipeline(detector, streams):
         _add_display_branch(pipeline, n)
         _add_jpeg_branch(pipeline)
         pipeline.link("mux", "infer", "tee")
-        pipeline.link("tee", "q_display", "tiler")
-        pipeline.link("tee", "q_jpg", "encoder")
+        pipeline.link(("tee", "q_display"), ("", "src_%u"))
+        pipeline.link("q_display", "tiler")
+        pipeline.link(("tee", "q_jpeg"), ("", "src_%u"))
+        pipeline.link("q_jpeg", "encoder")
         print(f"[Main] Live display ON — {n} streams in {_tiler_layout(n)[0]}x{_tiler_layout(n)[1]} tile")
     else:
         _add_jpeg_branch(pipeline)
