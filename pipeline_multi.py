@@ -40,8 +40,13 @@ SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "5.0"))
 VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
-HEADLESS        = os.environ.get("HEADLESS", "1") != "0"
+ENABLE_DISPLAY  = (
+    os.environ.get("ENABLE_DISPLAY", "0") == "1"
+    or os.environ.get("HEADLESS", "1") == "0"
+)
 JPEG_GLOB       = "/tmp/frame_*.jpg"
+TILER_W         = int(os.environ.get("TILER_W", "1280"))
+TILER_H         = int(os.environ.get("TILER_H", "720"))
 SNAPSHOT_DIR    = "/workspace/snapshots"
 STATS_DIR       = "/workspace/stats"
 RECONNECT_INTERVAL = 5
@@ -307,6 +312,43 @@ def vlm_worker(event_queue, stats_registry):
             stats.write(queue_depth=event_queue.qsize())
 
 
+def _tiler_layout(n):
+    import math
+    rows = int(math.sqrt(n))
+    cols = int(math.ceil(n / max(1, rows)))
+    return rows, cols
+
+
+def _add_jpeg_branch(pipeline):
+    """Frames for VLM worker — shared across display and headless modes."""
+    pipeline.add("nvjpegenc", "encoder", {"quality": 85})
+    pipeline.add("multifilesink", "filesink", {
+        "location":  "/tmp/frame_%05d.jpg",
+        "max-files": 8,
+        "async":     0,
+        "sync":      0,
+    })
+    pipeline.link("encoder", "filesink")
+
+
+def _add_display_branch(pipeline, n):
+    """2x2 (or N-tile) live window with bounding boxes."""
+    import platform
+
+    rows, cols = _tiler_layout(n)
+    pipeline.add("nvmultistreamtiler", "tiler", {
+        "rows":    rows,
+        "columns": cols,
+        "width":   TILER_W,
+        "height":  TILER_H,
+        "compute-hw": 1,
+    })
+    pipeline.add("nvosdbin", "osd")
+    sink = "nv3dsink" if platform.processor() == "aarch64" else "nveglglessink"
+    pipeline.add(sink, "display", {"sync": 0, "qos": 0})
+    pipeline.link("tiler", "osd", "display")
+
+
 def build_pipeline(detector, streams):
     n = len(streams)
     pipeline = Pipeline("multi-cam-vlm-pipeline")
@@ -334,29 +376,21 @@ def build_pipeline(detector, streams):
         "batch-size":       n,
     })
 
-    if HEADLESS:
-        pipeline.add("nvjpegenc", "encoder", {"quality": 85})
-        pipeline.add("multifilesink", "sink", {
-            "location":  "/tmp/frame_%05d.jpg",
-            "max-files": 8,
-            "async":     0,
-            "sync":      0,
-        })
-        pipeline.link("mux", "infer", "encoder", "sink")
+    if ENABLE_DISPLAY:
+        # tee splits infer output: live 2x2 tile + jpeg snapshots for VLM
+        pipeline.add("tee", "tee")
+        pipeline.add("queue", "q_display", {"max-size-buffers": 2, "leaky": 2})
+        pipeline.add("queue", "q_jpeg", {"max-size-buffers": 2, "leaky": 2})
+        _add_display_branch(pipeline, n)
+        _add_jpeg_branch(pipeline)
+        pipeline.link("mux", "infer", "tee")
+        pipeline.link("tee", "q_display", "tiler")
+        pipeline.link("tee", "q_jpg", "encoder")
+        print(f"[Main] Live display ON — {n} streams in {_tiler_layout(n)[0]}x{_tiler_layout(n)[1]} tile")
     else:
-        import math
-        import platform
-
-        pipeline.add("nvmultistreamtiler", "tiler", {
-            "rows":    int(math.sqrt(n)),
-            "columns": int(math.ceil(n / max(1, int(math.sqrt(n))))),
-            "width":   1280,
-            "height":  720,
-        })
-        pipeline.add("nvosdbin", "osd")
-        sink = "nv3dsink" if platform.processor() == "aarch64" else "nveglglessink"
-        pipeline.add(sink, "display")
-        pipeline.link("mux", "infer", "tiler", "osd", "display")
+        _add_jpeg_branch(pipeline)
+        pipeline.link("mux", "infer", "encoder")
+        print("[Main] Headless mode (set ENABLE_DISPLAY=1 for live 2x2 tile)")
 
     pipeline.attach("infer", Probe("detector", detector))
     return pipeline

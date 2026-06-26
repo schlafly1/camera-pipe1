@@ -9,6 +9,8 @@ x-deepstream: &deepstream
   privileged: true
   env_file: .env
   volumes:
+    - /tmp/.X11-unix:/tmp/.X11-unix
+    - /etc/X11:/etc/X11
     - .:/workspace
   working_dir: /workspace
   stdin_open: true
@@ -42,9 +44,14 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: all
       VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
       OLLAMA_HOST: "${OLLAMA_HOST:-http://127.0.0.1:11434}"
+      DISPLAY: "${DISPLAY:-:0}"
+      XAUTHORITY: /root/.Xauthority
       FRAME_W: "${FRAME_W:-1280}"
       FRAME_H: "${FRAME_H:-720}"
+      ENABLE_DISPLAY: "${ENABLE_DISPLAY:-0}"
       HEADLESS: "${HEADLESS:-1}"
+      TILER_W: "${TILER_W:-1280}"
+      TILER_H: "${TILER_H:-720}"
       SAVE_INTERVAL: "${SAVE_INTERVAL:-5.0}"
       VLM_QUEUE_MAX: "${VLM_QUEUE_MAX:-12}"
       CHROMADB_HOST: "127.0.0.1"

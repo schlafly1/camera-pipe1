@@ -48,6 +48,34 @@ docker compose -f cam_multi.yml build
 docker compose -f cam_multi.yml up -d
 ```
 
+## Live video feed (2×2 tile)
+
+The legacy `pipeline2.py` never connected a display sink — it only wrote JPEGs to
+disk. The multi-stream pipeline can show a **live tiled window with bounding boxes**
+and still run VLM in parallel.
+
+```bash
+# On the host (once per session)
+xhost +local:
+
+# In .env
+ENABLE_DISPLAY=1
+DISPLAY=:0          # or :1 over SSH -Y
+
+# If you get auth errors, also mount your cookie (add to cam_multi.yml volumes):
+#   - /home/you/.Xauthority:/root/.Xauthority:ro
+
+docker compose -f cam_multi.yml up -d --force-recreate
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 pipeline_multi.py
+```
+
+This is not hard to add — it is the standard DeepStream path:
+`nvinfer → tee → [tiler → osd → display]` plus a JPEG branch for VLM.
+
+Headless mode (`ENABLE_DISPLAY=0`, default) skips the window and saves GPU for
+more streams.
+
 ## Run
 
 ```bash
@@ -82,7 +110,9 @@ Search UI: http://localhost:8001
 | `RTSP_URL_CAM1..N` | — | One URL per camera; stop numbering at first gap |
 | `RTSP_TRANSPORT_CAMn` | `0` | Set `4` for TCP-only cameras |
 | `FRAME_W` / `FRAME_H` | `1280` / `720` | Use substream resolution when possible |
-| `HEADLESS` | `1` | `0` enables 2×2 tiler + display (needs X11) |
+| `ENABLE_DISPLAY` | `0` | `1` = live 2×2 tile + bounding boxes (needs X11) |
+| `HEADLESS` | `1` | Legacy alias: `0` also enables display |
+| `TILER_W` / `TILER_H` | `1280` / `720` | Live window size |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Spark Ollama; Thor points at Spark IP |
 | `VLM_MODEL` | `gemma4:26b` | |
 | `SAVE_INTERVAL` | `5.0` | Min seconds between saves per class per camera |

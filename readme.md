@@ -31,6 +31,9 @@ python3 monitor.py           # on host — per-camera stats
 | `cam_multi.yml` | `cam1.yml` |
 | `pgie_config_multi.yml` | `pgie_config.yml` |
 
+Set `ENABLE_DISPLAY=1` in `.env` for a live 2×2 tile with bounding boxes (the legacy
+pipeline never wired a display sink).
+
 ## Requirements
 
 - NVIDIA Jetson Thor or DGX Spark with Docker + NVIDIA Container Toolkit
