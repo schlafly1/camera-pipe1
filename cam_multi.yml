@@ -1,0 +1,51 @@
+# Single-container multi-stream pipeline (pipeline_multi.py).
+# Develop on DGX Spark; deploy the same compose file on Jetson Thor.
+
+x-deepstream: &deepstream
+  build: .
+  image: cam1-deepstream
+  runtime: nvidia
+  network_mode: host
+  privileged: true
+  env_file: .env
+  volumes:
+    - .:/workspace
+  working_dir: /workspace
+  stdin_open: true
+  tty: true
+  command: sleep infinity
+  depends_on:
+    chromadb:
+      condition: service_healthy
+
+services:
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_data:/data
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  deepstream:
+    <<: *deepstream
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      VLM_MODEL: "${VLM_MODEL:-gemma4:26b}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://127.0.0.1:11434}"
+      FRAME_W: "${FRAME_W:-1280}"
+      FRAME_H: "${FRAME_H:-720}"
+      HEADLESS: "${HEADLESS:-1}"
+      SAVE_INTERVAL: "${SAVE_INTERVAL:-5.0}"
+      VLM_QUEUE_MAX: "${VLM_QUEUE_MAX:-12}"
+      CHROMADB_HOST: "127.0.0.1"
+      CHROMADB_PORT: "8000"

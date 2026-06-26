@@ -1,20 +1,44 @@
 # camera-pipe1
 
-DeepStream 9.0 camera pipeline for the NVIDIA Jetson Thor (JetPack 7.2).
+DeepStream 9.0 camera pipeline for NVIDIA Jetson Thor (JetPack 7.2) and DGX Spark.
 
 Detects vehicles, motorcycles, and persons via TrafficCamNet, sends each
 detection frame to a VLM (Gemma4:26b via Ollama) for a natural-language
 description, embeds the description with nomic-embed-text, and stores it in
 ChromaDB. A FastAPI server serves a search UI for natural-language queries.
 
+## Recommended: multi-stream pipeline
+
+**One DS9 pipeline for all cameras** — develop on Spark, deploy on Thor.
+
+See **[SPARK_DEV.md](SPARK_DEV.md)** for full instructions.
+
+```bash
+cp env.example .env          # set RTSP_URL_CAM1..4, OLLAMA_HOST
+docker compose -f cam_multi.yml build
+docker compose -f cam_multi.yml up -d
+
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 pipeline_multi.py    # all cameras in one process
+
+python3 query_server.py      # search UI on :8001
+python3 monitor.py           # on host — per-camera stats
+```
+
+| Multi-stream | Legacy (per-camera) |
+|--------------|---------------------|
+| `pipeline_multi.py` | `pipeline2.py` |
+| `cam_multi.yml` | `cam1.yml` |
+| `pgie_config_multi.yml` | `pgie_config.yml` |
+
 ## Requirements
 
-- NVIDIA Jetson Thor with JetPack 7.2
-- Docker + NVIDIA Container Toolkit
-- Ollama running on the host with `gemma4:26b` and `nomic-embed-text` pulled
-- One or more RTSP cameras reachable from the Jetson
+- NVIDIA Jetson Thor or DGX Spark with Docker + NVIDIA Container Toolkit
+- DeepStream 9.0 container (`nvcr.io/nvidia/deepstream:9.0-triton-multiarch`)
+- Ollama with `gemma4:26b` and `nomic-embed-text` (Spark recommended for VLM)
+- One or more RTSP cameras reachable from the edge device
 
-## Setup
+## Legacy setup (one container per camera)
 
 ```bash
 # 1. Copy and fill in your camera URLs
