@@ -34,19 +34,59 @@ ollama pull gemma4:26b
 ollama pull nomic-embed-text
 ```
 
-## Setup
+## Clone on Spark (everything you need is on GitHub)
 
 ```bash
-git clone https://github.com/schlafly1/camera-pipe1.git
+git clone -b multi-stream https://github.com/schlafly1/camera-pipe1.git
 cd camera-pipe1
-git checkout -b multi-stream   # after you push this branch
-
-cp env.example .env
-# Edit .env: RTSP_URL_CAM1..4, OLLAMA_HOST=http://127.0.0.1:11434
-
-docker compose -f cam_multi.yml build
-docker compose -f cam_multi.yml up -d
 ```
+
+You do **not** need to copy anything from the Windows `C:\sd\thor` folder except
+your real **`.env`** (camera URLs and secrets) if you already have one on Thor.
+
+| On GitHub (`multi-stream` branch) | Not on GitHub — copy manually if needed |
+|-----------------------------------|----------------------------------------|
+| All code, Docker, docs | `.env` (from Thor; never committed) |
+| `env.example` template | `chroma_data/` (optional; starts empty) |
+| `SPARK_DEV.md`, `readme.md` | `snapshots/`, `stats/` (created at runtime) |
+| | `setup.txt`, `thor-spark-plan.txt` (local planning notes only) |
+
+## Full setup on Spark
+
+```bash
+# 1. Clone
+git clone -b multi-stream https://github.com/schlafly1/camera-pipe1.git
+cd camera-pipe1
+
+# 2. Environment — copy from Thor or start from template
+cp env.example .env
+nano .env    # RTSP_URL_CAM1..4, OLLAMA_HOST=http://127.0.0.1:11434
+
+# 3. Local data dirs (gitignored; created automatically but safe to pre-create)
+mkdir -p chroma_data snapshots stats
+
+# 4. Ollama (host, not in Docker)
+ollama pull gemma4:26b
+ollama pull nomic-embed-text
+OLLAMA_HOST=0.0.0.0 ollama serve &
+
+# 5. Build and start containers
+docker compose -f cam_multi.yml build    # first time ~3-5 min
+docker compose -f cam_multi.yml up -d
+
+# 6. Run pipeline (one shell — all cameras)
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 pipeline_multi.py
+
+# 7. Query server (second shell)
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 query_server.py
+
+# 8. Monitor (on Spark host, outside container)
+python3 monitor.py
+```
+
+Search UI: http://localhost:8001
 
 ## Live video feed (2×2 tile)
 
