@@ -11,7 +11,25 @@ ChromaDB. A FastAPI server serves a search UI for natural-language queries.
 
 **One DS9 pipeline for all cameras** — develop on Spark, deploy on Thor.
 
-See **[SPARK_DEV.md](SPARK_DEV.md)** for full instructions.
+See **[SPARK_DEV.md](SPARK_DEV.md)** for full up-to-date instructions (including how to run `pipeline_multi.py` and `query_server.py`).
+
+Quick start (multi-stream):
+
+```bash
+docker compose -f cam_multi.yml up -d
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 pipeline_multi.py     # one process handles all cameras
+```
+
+In a second shell:
+```bash
+docker exec -it camera-pipe1-deepstream-1 bash
+python3 query_server.py
+```
+
+UI: http://localhost:8001
+
+See SPARK_DEV.md for environment variables (especially `RTSP_TRANSPORT_CAMn=4` for reliable TCP), troubleshooting camera feeds, and the difference from the old per-camera setup.
 
 ```bash
 cp env.example .env          # set RTSP_URL_CAM1..4, OLLAMA_HOST

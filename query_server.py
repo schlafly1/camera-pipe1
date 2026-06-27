@@ -36,12 +36,14 @@ SNAPSHOT_DIR   = "/workspace/snapshots"
 SEARCH_HTML    = "/workspace/search.html"
 
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+os.makedirs("/tmp/hls", exist_ok=True)
 
 app = FastAPI(title="Vision Query API")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"],
 )
 app.mount("/snapshots", StaticFiles(directory=SNAPSHOT_DIR), name="snapshots")
+app.mount("/hls", StaticFiles(directory="/tmp/hls", html=True), name="hls")
 
 chroma_client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
 
@@ -211,6 +213,52 @@ def query(
         output.sort(key=lambda x: x["wall_time_s"] or 0)
 
     return {"query": text, "count": len(output), "results": output}
+
+
+LIVE_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Live Feeds</title>
+<style>
+body { background:#0f1117; color:#e2e4ef; font-family:system-ui,sans-serif; padding:20px; margin:0; }
+h1 { margin-bottom:12px; }
+#player-container { max-width:1280px; margin:0 auto; }
+video { width:100%; height:auto; background:#000; border-radius:8px; }
+.info { color:#8890a8; font-size:0.85rem; margin:8px 0 16px; }
+</style>
+</head>
+<body>
+<h1>Live Camera Feeds (tiled + detections)</h1>
+<div id="player-container">
+  <video id="video" controls autoplay muted playsinline></video>
+</div>
+<p class="info">HLS stream from the DeepStream pipeline (2x2 tiled view with bounding boxes when LIVE_STREAM=1).</p>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+const video = document.getElementById('video');
+if (Hls.isSupported()) {
+  const hls = new Hls({ lowLatencyMode: true });
+  hls.loadSource('/hls/stream.m3u8');
+  hls.attachMedia(video);
+  hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+} else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+  video.src = '/hls/stream.m3u8';
+  video.addEventListener('loadedmetadata', () => video.play().catch(()=>{}));
+} else {
+  document.getElementById('player-container').innerHTML = '<p>Your browser does not support HLS playback.</p>';
+}
+</script>
+</body>
+</html>
+"""
+
+@app.get("/live")
+def live():
+    """Simple live video player page."""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=LIVE_HTML)
 
 
 if __name__ == "__main__":

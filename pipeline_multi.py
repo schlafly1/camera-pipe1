@@ -44,6 +44,7 @@ ENABLE_DISPLAY  = (
     os.environ.get("ENABLE_DISPLAY", "0") == "1"
     or os.environ.get("HEADLESS", "1") == "0"
 )
+LIVE_STREAM     = os.environ.get("LIVE_STREAM", "0") == "1"
 JPEG_GLOB       = "/tmp/frame_*.jpg"
 TILER_W         = int(os.environ.get("TILER_W", "1280"))
 TILER_H         = int(os.environ.get("TILER_H", "720"))
@@ -217,19 +218,36 @@ class ObjectDetector(BatchMetadataOperator):
                 break
 
 
-def get_jpeg_after(after_time, timeout=2.0):
+def get_jpeg_after(after_time, camera_id=None, timeout=3.0):
+    """Return bytes of a reasonably fresh JPEG.
+
+    If camera_id is provided, prefer /tmp/frame_camN_*.jpg files written by the
+    per-source snapshot branch (much more reliable for VLM per detection).
+    Falls back to the global JPEG_GLOB if needed.
+    """
     deadline = time.time() + timeout
+    patterns = []
+    if camera_id is not None:
+        patterns.append(f"/tmp/frame_cam{camera_id}_*.jpg")
+    patterns.append(JPEG_GLOB)
+
     while time.time() < deadline:
-        files = glob.glob(JPEG_GLOB)
-        fresh = [f for f in files if os.path.getmtime(f) > after_time]
-        if fresh:
-            path = max(fresh, key=os.path.getmtime)
+        for pat in patterns:
             try:
-                with open(path, "rb") as fh:
-                    return fh.read()
-            except OSError:
-                pass
-        time.sleep(0.05)
+                files = glob.glob(pat)
+            except Exception:
+                files = []
+            fresh = [f for f in files if os.path.getmtime(f) > after_time]
+            if fresh:
+                path = max(fresh, key=os.path.getmtime)
+                try:
+                    with open(path, "rb") as fh:
+                        data = fh.read()
+                        if len(data) > 1000:  # basic sanity
+                            return data
+                except OSError:
+                    pass
+        time.sleep(0.08)
     return None
 
 
@@ -248,10 +266,10 @@ def vlm_worker(event_queue, stats_registry):
         camera_id = det["camera_id"]
         stats = stats_registry.for_camera(camera_id)
         try:
-            jpeg_bytes = get_jpeg_after(det["queued_at"])
+            jpeg_bytes = get_jpeg_after(det["queued_at"], camera_id=camera_id)
             if not jpeg_bytes:
                 print(
-                    f"[VLM] No fresh frame within 2s, "
+                    f"[VLM] No fresh frame within timeout, "
                     f"skipping cam{camera_id} evt={det['event_id']}"
                 )
                 stats.write(queue_depth=event_queue.qsize())
@@ -331,22 +349,6 @@ def _add_jpeg_branch(pipeline):
     pipeline.link("encoder", "filesink")
 
 
-def _add_display_branch(pipeline, n):
-    """2x2 (or N-tile) live window with bounding boxes."""
-    import platform
-
-    rows, cols = _tiler_layout(n)
-    pipeline.add("nvmultistreamtiler", "tiler", {
-        "rows":    rows,
-        "columns": cols,
-        "width":   TILER_W,
-        "height":  TILER_H,
-        "compute-hw": 1,
-    })
-    pipeline.add("nvosdbin", "osd")
-    sink = "nv3dsink" if platform.processor() == "aarch64" else "nveglglessink"
-    pipeline.add(sink, "display", {"sync": 0, "qos": 0})
-    pipeline.link("tiler", "osd", "display")
 
 
 def build_pipeline(detector, streams):
@@ -364,35 +366,128 @@ def build_pipeline(detector, streams):
 
     for i, stream in enumerate(streams):
         name = f"src{i}"
-        pipeline.add("nvurisrcbin", name, {
+        cam = stream["camera_id"]
+        props = {
             "uri":                     stream["url"],
             "select-rtp-protocol":     stream["rtsp_transport"],
-            "rtsp-reconnect-interval":   RECONNECT_INTERVAL,
+            "rtsp-reconnect-interval": RECONNECT_INTERVAL,
+        }
+        if stream.get("rtsp_transport") == 4:
+            # TCP is often more reliable inside containers / for Reolink/Dahua
+            props.update({
+                "latency": 2000,
+                "drop-on-latency": 1,
+            })
+        pipeline.add("nvurisrcbin", name, props)
+
+        # Per-source tee so we can feed a clean JPEG branch per camera for VLM.
+        # One leg goes to the mux (for batched inference), the other produces
+        # /tmp/frame_camN_*.jpg that get_jpeg_after(camera_id=...) can use reliably.
+        tee_name = f"srctee{i}"
+        q_mux = f"qsrc{i}_mux"
+        q_snap = f"qsrc{i}_snap"
+        pipeline.add("tee", tee_name)
+        pipeline.add("queue", q_mux, {"max-size-buffers": 6, "leaky": 2})
+        pipeline.add("queue", q_snap, {"max-size-buffers": 3, "leaky": 2})
+
+        pipeline.link(name, tee_name)
+        pipeline.link(tee_name, q_mux)
+        pipeline.link((q_mux, "mux"), ("", "sink_%u"))
+
+        # Dedicated low-overhead JPEG snapshot for this camera
+        enc = f"snapenc{cam}"
+        fsink = f"fsnap{cam}"
+        pipeline.add("nvjpegenc", enc, {"quality": 82})
+        pipeline.add("multifilesink", fsink, {
+            "location":  f"/tmp/frame_cam{cam}_%05d.jpg",
+            "max-files": 6,
+            "async":     0,
+            "sync":      0,
         })
-        pipeline.link((name, "mux"), ("", "sink_%u"))
+        pipeline.link(q_snap, enc)
+        pipeline.link(enc, fsink)
 
     pipeline.add("nvinfer", "infer", {
         "config-file-path": "pgie_config_multi.yml",
         "batch-size":       n,
     })
 
-    if ENABLE_DISPLAY:
-        # tee splits infer output: live 2x2 tile + jpeg snapshots for VLM
+    if ENABLE_DISPLAY or LIVE_STREAM:
+        # tee after infer for (optional) display + live web stream
+        # (VLM JPEGs are now provided by the per-camera snapshot branches created earlier)
         pipeline.add("tee", "tee")
         pipeline.add("queue", "q_display", {"max-size-buffers": 2, "leaky": 2})
-        pipeline.add("queue", "q_jpeg", {"max-size-buffers": 2, "leaky": 2})
-        _add_display_branch(pipeline, n)
-        _add_jpeg_branch(pipeline)
+
         pipeline.link("mux", "infer", "tee")
-        pipeline.link(("tee", "q_display"), ("", "src_%u"))
-        pipeline.link("q_display", "tiler")
-        pipeline.link(("tee", "q_jpeg"), ("", "src_%u"))
-        pipeline.link("q_jpeg", "encoder")
-        print(f"[Main] Live display ON — {n} streams in {_tiler_layout(n)[0]}x{_tiler_layout(n)[1]} tile")
+
+        # Build tiled + osd path (used for both display and live HLS stream)
+        rows, cols = _tiler_layout(n)
+        pipeline.add("nvmultistreamtiler", "tiler", {
+            "rows":    rows,
+            "columns": cols,
+            "width":   TILER_W,
+            "height":  TILER_H,
+            "compute-hw": 1,
+        })
+        pipeline.add("nvosdbin", "osd")
+
+        # Link the display branch *downstream first*, then attach the tee.
+        # This helps caps negotiation across the tee.
+        # Use a converter on the display branch to make caps negotiation
+        # happy when coming from the post-infer tee (common in DeepStream).
+        pipeline.add("nvvideoconvert", "dispconv")
+        pipeline.link("q_display", "dispconv")
+        pipeline.link("dispconv", "tiler")
+        pipeline.link("tiler", "osd")
+        pipeline.link("tee", "q_display")
+
+        # After OSD, branch for display sink and/or HLS stream.
+        # We always use a converter before the hardware encoder for robust caps negotiation.
+        if ENABLE_DISPLAY and LIVE_STREAM:
+            pipeline.add("tee", "osdtee")
+            pipeline.add("queue", "q_osd_disp", {"max-size-buffers": 2, "leaky": 2})
+            pipeline.add("queue", "q_osd_hls", {"max-size-buffers": 2, "leaky": 2})
+            pipeline.link("osd", "osdtee")
+            pipeline.link("osdtee", "q_osd_disp")
+            pipeline.link("osdtee", "q_osd_hls")
+            disp_sink = "q_osd_disp"
+            stream_in = "q_osd_hls"
+        else:
+            disp_sink = "osd"
+            stream_in = "osd"
+
+        if ENABLE_DISPLAY:
+            import platform
+            sink = "nv3dsink" if platform.processor() == "aarch64" else "nveglglessink"
+            pipeline.add(sink, "display", {"sync": 0, "qos": 0})
+            pipeline.link(disp_sink, "display")
+            print(f"[Main] Live display ON — {n} streams in {rows}x{cols} tile")
+
+        if LIVE_STREAM:
+            os.makedirs("/tmp/hls", exist_ok=True)
+            # Always go through a queue + converter before the encoder for stability
+            # and correct caps negotiation from the OSD/tiler output.
+            pipeline.add("queue", "q_hls", {"max-size-buffers": 4, "leaky": 2})
+            pipeline.add("nvvideoconvert", "streamconv")
+            pipeline.add("nvv4l2h264enc", "streamenc", {"preset-level": 1, "insert-sps-pps": 1})
+            pipeline.add("hlssink2", "hls", {
+                "location": "/tmp/hls/segment%05d.ts",
+                "playlist-location": "/tmp/hls/stream.m3u8",
+                "max-files": 8,
+                "target-duration": 2,
+                "playlist-type": 1,
+            })
+            # Link the appropriate upstream into our hls queue (then conv -> enc)
+            pipeline.link(stream_in, "q_hls")
+            pipeline.link("q_hls", "streamconv")
+            pipeline.link("streamconv", "streamenc")
+            pipeline.link("streamenc", "hls")
+            print(f"[Main] Live HLS stream enabled at /hls/stream.m3u8 ({n} streams tiled)")
+
     else:
         _add_jpeg_branch(pipeline)
         pipeline.link("mux", "infer", "encoder")
-        print("[Main] Headless mode (set ENABLE_DISPLAY=1 for live 2x2 tile)")
+        print("[Main] Headless mode (set ENABLE_DISPLAY=1 or LIVE_STREAM=1 for live video)")
 
     pipeline.attach("infer", Probe("detector", detector))
     return pipeline

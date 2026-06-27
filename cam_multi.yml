@@ -50,6 +50,7 @@ services:
       FRAME_H: "${FRAME_H:-720}"
       ENABLE_DISPLAY: "${ENABLE_DISPLAY:-0}"
       HEADLESS: "${HEADLESS:-1}"
+      LIVE_STREAM: "${LIVE_STREAM:-1}"
       TILER_W: "${TILER_W:-1280}"
       TILER_H: "${TILER_H:-720}"
       SAVE_INTERVAL: "${SAVE_INTERVAL:-5.0}"
