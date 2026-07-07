@@ -15,6 +15,8 @@ import glob
 import json
 import os
 import queue
+import shutil
+import tempfile
 import threading
 import time
 
@@ -36,7 +38,7 @@ CHROMADB_PORT   = int(os.environ.get("CHROMADB_PORT", "8000"))
 COLLECTION      = "vision_events"
 VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
 EMBED_MODEL     = "nomic-embed-text"
-SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "5.0"))
+SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
 VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
@@ -178,6 +180,14 @@ class ObjectDetector(BatchMetadataOperator):
             stats = self._stats.for_camera(camera_id)
             pts_ns = frame_meta.buffer_pts
 
+            # Determine if this is an office cam (throttled, droppable)
+            # or street cam (always process, protect from drops)
+            is_office = False
+            for s in self._streams:
+                if s["camera_id"] == camera_id:
+                    is_office = s.get("is_office", False)
+                    break
+
             for obj_meta in frame_meta.object_items:
                 cls = obj_meta.class_id
                 if cls not in DETECT_CLASSES:
@@ -185,7 +195,9 @@ class ObjectDetector(BatchMetadataOperator):
                 if obj_meta.confidence < DETECT_MIN_CONF[cls]:
                     continue
                 key = (camera_id, cls)
-                if now - self._last_save.get(key, 0) < SAVE_INTERVAL:
+                # Only apply SAVE_INTERVAL throttling to office cams.
+                # Street cams (real low-traffic) always get sent to VLM.
+                if is_office and now - self._last_save.get(key, 0) < SAVE_INTERVAL:
                     continue
                 self._last_save[key] = now
                 event_id = self._next_event_id(camera_id)
@@ -195,12 +207,19 @@ class ObjectDetector(BatchMetadataOperator):
                     f"conf={obj_meta.confidence:.2f} evt={event_id}"
                 )
                 if self._q.qsize() >= VLM_QUEUE_MAX:
-                    print(
-                        f"[Detect] VLM queue full ({VLM_QUEUE_MAX}), "
-                        f"dropping cam{camera_id} evt={event_id}"
-                    )
-                    stats.record_drop()
-                    break
+                    if is_office:
+                        print(
+                            f"[Detect] VLM queue full ({VLM_QUEUE_MAX}), "
+                            f"dropping office cam{camera_id} evt={event_id}"
+                        )
+                        stats.record_drop()
+                        break
+                    else:
+                        # Street cam: queue anyway (events are rare; protect them)
+                        print(
+                            f"[Detect] VLM queue full but queuing street cam{camera_id} "
+                            f"evt={event_id} (protecting real traffic)"
+                        )
                 now_dt = datetime.datetime.now(tz=LOCAL_TZ)
                 self._q.put({
                     "class_id":    cls,
@@ -218,18 +237,35 @@ class ObjectDetector(BatchMetadataOperator):
                 break
 
 
-def get_jpeg_after(after_time, camera_id=None, timeout=3.0):
-    """Return bytes of a reasonably fresh JPEG.
+def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
+    """Return bytes of a reasonably fresh JPEG for the given camera.
 
-    If camera_id is provided, prefer /tmp/frame_camN_*.jpg files written by the
-    per-source snapshot branch (much more reliable for VLM per detection).
-    Falls back to the global JPEG_GLOB if needed.
+    Uses a time window (before and after detection time) to account for
+    the snapshot being written slightly before/after the probe fires.
+    Prefers per-camera files. Never falls back to the global stream when
+    a camera_id is given — this prevents cam3/4 from getting images from
+    cam1/2.
+
+    If no file in the "fresh" window for the camera, we fall back to the
+    most recent file that exists for that camera (stale frame is better
+    than wrong camera or nothing).
+
+    The chosen file is copied to a temp location immediately to avoid
+    race with multifilesink rotation.
     """
     deadline = time.time() + timeout
-    patterns = []
+    WINDOW_BEFORE = 30.0   # allow snapshot written up to 30s before detection
+    WINDOW_AFTER = 10.0
+
     if camera_id is not None:
-        patterns.append(f"/tmp/frame_cam{camera_id}_*.jpg")
-    patterns.append(JPEG_GLOB)
+        per_cam_pat = f"/tmp/frame_cam{camera_id}_*.jpg"
+        patterns = [per_cam_pat]
+    else:
+        patterns = [JPEG_GLOB]
+
+    best_path = None
+    best_mtime = -1
+    best_is_stale = False
 
     while time.time() < deadline:
         for pat in patterns:
@@ -237,17 +273,56 @@ def get_jpeg_after(after_time, camera_id=None, timeout=3.0):
                 files = glob.glob(pat)
             except Exception:
                 files = []
-            fresh = [f for f in files if os.path.getmtime(f) > after_time]
-            if fresh:
-                path = max(fresh, key=os.path.getmtime)
+
+            for f in files:
                 try:
-                    with open(path, "rb") as fh:
-                        data = fh.read()
-                        if len(data) > 1000:  # basic sanity
-                            return data
+                    m = os.path.getmtime(f)
                 except OSError:
-                    pass
-        time.sleep(0.08)
+                    continue
+
+                # Prefer files within the window around after_time
+                if (after_time - WINDOW_BEFORE) <= m <= (after_time + WINDOW_AFTER):
+                    if m > best_mtime:
+                        best_mtime = m
+                        best_path = f
+                        best_is_stale = False
+                elif camera_id is not None and m > best_mtime:
+                    # Track most recent as potential stale fallback for this cam
+                    best_mtime = m
+                    best_path = f
+                    best_is_stale = True
+
+        if best_path:
+            break
+        time.sleep(0.1)
+
+    if not best_path:
+        return None
+
+    # Immediately copy to a safe temp file so multifilesink can't delete it
+    # while we (or the caller) are reading / using the bytes.
+    try:
+        fd, safe_path = tempfile.mkstemp(suffix=".jpg", prefix=f"vlm_cam{camera_id or '0'}_")
+        os.close(fd)
+        shutil.copy2(best_path, safe_path)
+        with open(safe_path, "rb") as fh:
+            data = fh.read()
+        os.unlink(safe_path)  # clean temp
+        if len(data) < 1000:
+            return None
+        if best_is_stale and camera_id is not None:
+            age = time.time() - best_mtime
+            print(f"[VLM] Using stale frame for cam{camera_id} (age ~{age:.1f}s)")
+        return data
+    except Exception:
+        # Fallback: try direct read (may race)
+        try:
+            with open(best_path, "rb") as fh:
+                data = fh.read()
+            if len(data) > 1000:
+                return data
+        except OSError:
+            pass
     return None
 
 
@@ -342,7 +417,7 @@ def _add_jpeg_branch(pipeline):
     pipeline.add("nvjpegenc", "encoder", {"quality": 85})
     pipeline.add("multifilesink", "filesink", {
         "location":  "/tmp/frame_%05d.jpg",
-        "max-files": 8,
+        "max-files": 200,
         "async":     0,
         "sync":      0,
     })
@@ -400,7 +475,7 @@ def build_pipeline(detector, streams):
         pipeline.add("nvjpegenc", enc, {"quality": 82})
         pipeline.add("multifilesink", fsink, {
             "location":  f"/tmp/frame_cam{cam}_%05d.jpg",
-            "max-files": 6,
+            "max-files": 200,
             "async":     0,
             "sync":      0,
         })

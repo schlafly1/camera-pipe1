@@ -53,7 +53,7 @@ services:
       LIVE_STREAM: "${LIVE_STREAM:-1}"
       TILER_W: "${TILER_W:-1280}"
       TILER_H: "${TILER_H:-720}"
-      SAVE_INTERVAL: "${SAVE_INTERVAL:-5.0}"
+      SAVE_INTERVAL: "${SAVE_INTERVAL:-30.0}"
       VLM_QUEUE_MAX: "${VLM_QUEUE_MAX:-12}"
       CHROMADB_HOST: "127.0.0.1"
       CHROMADB_PORT: "8000"

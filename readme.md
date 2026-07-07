@@ -112,7 +112,7 @@ REST API: `curl "http://localhost:8001/query?text=red+car"`
 | Setting | File | Default |
 |---------|------|---------|
 | Inference interval (0 = every frame, 4 = every 5th) | `pgie_config.yml` → `interval` | 4 |
-| Min seconds between saves per object class per camera | `pipeline2.py` → `SAVE_INTERVAL` | 5.0 |
+| Min seconds between saves per object class per camera | `pipeline_multi.py` → `SAVE_INTERVAL` (in .env) | 30.0 (raise if VLM can't keep up) |
 | VLM model | `.env` → `VLM_MODEL` | `gemma4:26b` |
 | Force TCP RTSP | `.env` → `RTSP_TRANSPORT_CAMx=4` | 0 (UDP) |
 

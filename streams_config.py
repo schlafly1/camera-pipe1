@@ -7,8 +7,12 @@ def load_streams():
     """
     Load cameras from RTSP_URL_CAM1, RTSP_URL_CAM2, ... in .env.
 
-    Each camera may set RTSP_TRANSPORT_CAMn=4 for TCP (Dahua, etc.).
-    Fallback: comma-separated STREAM_URLS for quick tests.
+    Each camera may set:
+      RTSP_TRANSPORT_CAMn=4 for TCP
+      CAM_TYPE_CAMn=office or street (default street)
+        - street: always send detections to VLM (no SAVE_INTERVAL throttle)
+        - office: throttle with SAVE_INTERVAL; drop if VLM queue full
+    Fallback: comma-separated STREAM_URLS for quick tests (treated as street).
     """
     streams = []
     cam = 1
@@ -22,11 +26,15 @@ def load_streams():
                 os.environ.get("RTSP_TRANSPORT", "0"),
             )
         )
+        cam_type = os.environ.get(f"CAM_TYPE_CAM{cam}", "street").lower()
+        is_office = cam_type == "office"
         streams.append({
             "camera_id": cam,
             "source_index": cam - 1,
             "url": url,
             "rtsp_transport": transport,
+            "is_office": is_office,
+            "cam_type": cam_type,
         })
         cam += 1
 
@@ -40,6 +48,8 @@ def load_streams():
                     "source_index": idx - 1,
                     "url": url,
                     "rtsp_transport": 0,
+                    "is_office": False,
+                    "cam_type": "street",
                 })
 
     if not streams:

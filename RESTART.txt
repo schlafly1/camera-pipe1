@@ -1,0 +1,79 @@
+How to Restart the Camera Pipeline (pipeline_multi.py)
+=====================================================
+
+The pipeline runs **inside** the Docker container, not on the host.
+This means you must use `docker exec` to manage the process.
+
+The container is started with `command: sleep infinity`, so killing
+the Python process does NOT stop the container — it just stops the
+pipeline (the container stays running so you can restart it easily).
+
+1. Kill the running pipeline
+-----------------------------
+From your host machine, run:
+
+    docker exec camera-pipe1-deepstream-1 pkill -f pipeline_multi.py
+
+Or more precisely (recommended):
+
+    docker exec camera-pipe1-deepstream-1 pkill -f 'python.*pipeline_multi'
+
+Verify it is stopped:
+
+    docker exec camera-pipe1-deepstream-1 ps aux | grep -E 'python|pipeline'
+
+Note: Do **NOT** run plain `pkill` on the host — it will usually fail
+with "Operation not permitted" because the process is inside the container.
+
+2. Restart the pipeline
+-----------------------
+Option A – Interactive (best while debugging or watching logs)
+
+    docker exec -it camera-pipe1-deepstream-1 bash
+    python3 pipeline_multi.py
+
+Option B – Run in background inside the container
+
+    docker exec -d camera-pipe1-deepstream-1 bash -c '
+        python3 -u pipeline_multi.py > /tmp/pipeline.log 2>&1 &
+    '
+
+3. View logs
+------------
+If you started it with redirection to /tmp/pipeline.log:
+
+    docker exec -it camera-pipe1-deepstream-1 tail -f /tmp/pipeline.log
+
+If you started it interactively, the logs appear directly in the terminal.
+
+You can also follow container stdout (if you didn't redirect inside):
+
+    docker logs -f camera-pipe1-deepstream-1
+
+4. Quick one-liner to kill + restart in background
+--------------------------------------------------
+    docker exec camera-pipe1-deepstream-1 pkill -f 'python.*pipeline_multi' || true && \
+    docker exec -d camera-pipe1-deepstream-1 bash -c '
+        python3 -u pipeline_multi.py > /tmp/pipeline.log 2>&1 &
+    '
+
+5. After code changes
+---------------------
+If you edited pipeline_multi.py (or related files), you normally need to
+restart the Python process for changes to take effect.
+
+Just killing + restarting with one of the methods above is sufficient.
+
+6. Tips
+-------
+- The container uses `network_mode: host`, so ports like 8001 are on the host.
+- Use `docker compose -f cam_multi.yml stop` (instead of down) to preserve
+  the TensorRT engine cache.
+- To fully reset (including deleting old logs/snapshots), you can do:
+
+      docker compose -f cam_multi.yml stop
+      docker exec camera-pipe1-deepstream-1 rm -f /tmp/pipeline.log /tmp/frame_*.jpg
+
+- If you want the pipeline to survive container restarts, consider running
+  it under a supervisor inside the container (not required for normal use).
+

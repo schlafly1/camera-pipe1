@@ -187,8 +187,9 @@ Search UI: http://localhost:8001
 | `TILER_W` / `TILER_H` | `1280` / `720` | Live window size |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Spark Ollama; Thor points at Spark IP |
 | `VLM_MODEL` | `gemma4:26b` | |
-| `SAVE_INTERVAL` | `5.0` | Min seconds between saves per class per camera |
+| `SAVE_INTERVAL` | `30.0` | Min seconds between saves per class per camera (only applies to office cams). Raise if VLM can't keep up (see monitor.py). |
 | `VLM_QUEUE_MAX` | `12` | Shared queue across all cameras |
+| `CAM_TYPE_CAMn` | `street` | "office" (test/high-volume, throttled + droppable when VLM busy) or "street" (real low-volume; VLM on every detection, never throttled). Set e.g. CAM_TYPE_CAM1=office, CAM_TYPE_CAM3=street. Office cams are only used for testing and can be dropped to protect street cams. |
 
 ## First run
 
