@@ -39,7 +39,14 @@ COLLECTION      = "vision_events"
 VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
 EMBED_MODEL     = "nomic-embed-text"
 SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
+# Street cams still throttle per (camera, class) — shorter than office so real
+# passing traffic is captured, but a persistent detection (parked car or a
+# false positive on shadows/foliage) can't flood the VLM queue every frame.
+STREET_SAVE_INTERVAL = float(os.environ.get("STREET_SAVE_INTERVAL", "8.0"))
 VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
+# Hard ceiling for street cams, which otherwise queue unconditionally. Keeps a
+# stalled worker from growing the queue without bound (memory leak safeguard).
+STREET_QUEUE_MAX = int(os.environ.get("STREET_QUEUE_MAX", str(VLM_QUEUE_MAX * 8)))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
 ENABLE_DISPLAY  = (
@@ -56,7 +63,16 @@ RECONNECT_INTERVAL = 5
 RESTART_DELAY      = 10
 
 DETECT_CLASSES  = {0: "car", 1: "motorcycle", 2: "person"}
-DETECT_MIN_CONF = {0: 0.50, 1: 0.50, 2: 0.30}
+# Cars raised 0.50 -> 0.75: TrafficCamNet hallucinates "car" on shadows/foliage
+# in residential scenes at 0.54-0.70; real cars score ~0.9+. Streets see ~1 car/hr,
+# so precision matters far more than recall here.
+DETECT_MIN_CONF = {0: 0.75, 1: 0.50, 2: 0.30}
+
+# Per-object dedup (requires nvtracker). Emit one event per unique track id so a
+# single passing car = one event instead of one per inference frame.
+MIN_TRACK_HITS  = int(os.environ.get("MIN_TRACK_HITS", "2"))  # frames before emit
+TRACK_TTL       = 30.0        # forget a track id this long after last seen
+UNTRACKED_ID    = 2 ** 63     # tracker ids at/above this are "untracked" sentinels
 
 VLM_PROMPTS = {
     0: (
@@ -77,6 +93,35 @@ VLM_PROMPTS = {
         " what they are doing, and which direction they are moving."
     ),
 }
+
+
+# Phrases a VLM uses when the detected object isn't actually in the frame.
+# Used to reject detector false positives (e.g. TrafficCamNet firing "car" on
+# dappled shadows/foliage) — the VLM is a much stronger verifier than the PGIE.
+_VLM_REFUSAL = (
+    "i'm sorry", "i am sorry", "i cannot", "i can't", "cannot provide",
+    "unable to", "cannot find any", "don't see any", "do not see any",
+    "doesn't appear to be", "does not appear to be", "no discernible",
+)
+_VLM_ABSENT_SUBJECT = {
+    0: ("no vehicle", "no vehicles", "no car", "no cars", "not a vehicle"),
+    1: ("no motorcycle", "no motorcycles", "no bicycle", "no bicycles",
+        "no bike", "no bikes", "no scooter"),
+    2: ("no person", "no people", "no individual", "no humans", "no pedestrian"),
+}
+
+
+def _vlm_says_absent(description, class_id):
+    """True if the VLM's reply indicates the detected object isn't present.
+
+    Deliberately narrow: matches explicit refusals and subject-specific
+    negations ("no vehicles") but NOT incidental negations that appear in
+    valid descriptions ("no visible damage", "no passenger", "no backpack").
+    """
+    d = description.lower()
+    if any(m in d for m in _VLM_REFUSAL):
+        return True
+    return any(s in d for s in _VLM_ABSENT_SUBJECT.get(class_id, ()))
 
 
 def camera_id_for_source(source_id, streams):
@@ -166,6 +211,7 @@ class ObjectDetector(BatchMetadataOperator):
         self._streams = streams
         self._last_save = {}
         self._event_ids = {}
+        self._track_seen = {}   # (camera_id, track_id) -> {count, emitted, last}
 
     def _next_event_id(self, camera_id):
         n = self._event_ids.get(camera_id, 0) + 1
@@ -174,6 +220,13 @@ class ObjectDetector(BatchMetadataOperator):
 
     def handle_metadata(self, batch_meta):
         now = time.time()
+        # Forget track ids we haven't seen recently so the dict can't grow
+        # unbounded and old ids can't suppress a re-appearing object forever.
+        if self._track_seen:
+            stale = [k for k, v in self._track_seen.items()
+                     if now - v["last"] > TRACK_TTL]
+            for k in stale:
+                del self._track_seen[k]
         for frame_meta in batch_meta.frame_items:
             source_id = frame_meta.source_id
             camera_id = camera_id_for_source(source_id, self._streams)
@@ -194,12 +247,35 @@ class ObjectDetector(BatchMetadataOperator):
                     continue
                 if obj_meta.confidence < DETECT_MIN_CONF[cls]:
                     continue
+
+                # Per-object dedup via tracker id: emit once per unique track.
+                # The tracker's probationAge already discards single-frame
+                # flicker; MIN_TRACK_HITS is a second guard. Untracked objects
+                # fall through to the class-level throttle below.
+                tid = int(getattr(obj_meta, "object_id", -1))
+                tracked = 0 <= tid < UNTRACKED_ID
+                te = None
+                if tracked:
+                    tkey = (camera_id, tid)
+                    te = self._track_seen.get(tkey)
+                    if te is None:
+                        te = {"count": 0, "emitted": False, "last": now}
+                        self._track_seen[tkey] = te
+                    te["count"] += 1
+                    te["last"] = now
+                    if te["emitted"] or te["count"] < MIN_TRACK_HITS:
+                        continue
+
                 key = (camera_id, cls)
-                # Only apply SAVE_INTERVAL throttling to office cams.
-                # Street cams (real low-traffic) always get sent to VLM.
-                if is_office and now - self._last_save.get(key, 0) < SAVE_INTERVAL:
+                # Throttle per (camera, class) as a backstop against tracker-id
+                # churn / untracked frames. Office cams use a long interval;
+                # street cams a shorter one so real passing traffic is captured.
+                throttle = SAVE_INTERVAL if is_office else STREET_SAVE_INTERVAL
+                if now - self._last_save.get(key, 0) < throttle:
                     continue
                 self._last_save[key] = now
+                if te is not None:
+                    te["emitted"] = True
                 event_id = self._next_event_id(camera_id)
                 label = DETECT_CLASSES[cls]
                 print(
@@ -211,6 +287,17 @@ class ObjectDetector(BatchMetadataOperator):
                         print(
                             f"[Detect] VLM queue full ({VLM_QUEUE_MAX}), "
                             f"dropping office cam{camera_id} evt={event_id}"
+                        )
+                        stats.record_drop()
+                        break
+                    elif self._q.qsize() >= STREET_QUEUE_MAX:
+                        # Street cams get priority, but still bail out if the
+                        # worker has stalled — otherwise the queue grows without
+                        # bound and leaks memory (observed at 120k+ items).
+                        print(
+                            f"[Detect] VLM queue hard cap ({STREET_QUEUE_MAX}), "
+                            f"dropping street cam{camera_id} evt={event_id} "
+                            f"(worker stalled?)"
                         )
                         stats.record_drop()
                         break
@@ -363,6 +450,17 @@ def vlm_worker(event_queue, stats_registry):
                 }],
             )
             description = resp["message"]["content"].strip()
+
+            # Second-stage verification: if the VLM says the object isn't
+            # there, it's a detector false positive — drop it (don't embed
+            # or persist an empty-scene "car").
+            if _vlm_says_absent(description, det["class_id"]):
+                print(
+                    f"[VLM] cam{camera_id} evt={det['event_id']} REJECT "
+                    f"{det['label']} (VLM sees none): {description[:70]}"
+                )
+                continue
+
             print(
                 f"[VLM] cam{camera_id} evt={det['event_id']} "
                 f"{det['label']}: {description}"
@@ -467,6 +565,7 @@ def build_pipeline(detector, streams):
 
         pipeline.link(name, tee_name)
         pipeline.link(tee_name, q_mux)
+        pipeline.link(tee_name, q_snap)
         pipeline.link((q_mux, "mux"), ("", "sink_%u"))
 
         # Dedicated low-overhead JPEG snapshot for this camera
@@ -487,13 +586,25 @@ def build_pipeline(detector, streams):
         "batch-size":       n,
     })
 
+    # Multi-object tracker: assigns a persistent object_id per target so the
+    # probe can emit one event per unique car/person instead of one per frame.
+    # NvDCF_perf is self-contained (no ReID model); probationAge filters flicker.
+    _DS = "/opt/nvidia/deepstream/deepstream"
+    pipeline.add("nvtracker", "tracker", {
+        "ll-lib-file":    f"{_DS}/lib/libnvds_nvmultiobjecttracker.so",
+        "ll-config-file": f"{_DS}/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml",
+        "tracker-width":  640,
+        "tracker-height": 384,
+        "gpu-id":         0,
+    })
+
     if ENABLE_DISPLAY or LIVE_STREAM:
         # tee after infer for (optional) display + live web stream
         # (VLM JPEGs are now provided by the per-camera snapshot branches created earlier)
         pipeline.add("tee", "tee")
         pipeline.add("queue", "q_display", {"max-size-buffers": 2, "leaky": 2})
 
-        pipeline.link("mux", "infer", "tee")
+        pipeline.link("mux", "infer", "tracker", "tee")
 
         # Build tiled + osd path (used for both display and live HLS stream)
         rows, cols = _tiler_layout(n)
@@ -561,10 +672,11 @@ def build_pipeline(detector, streams):
 
     else:
         _add_jpeg_branch(pipeline)
-        pipeline.link("mux", "infer", "encoder")
+        pipeline.link("mux", "infer", "tracker", "encoder")
         print("[Main] Headless mode (set ENABLE_DISPLAY=1 or LIVE_STREAM=1 for live video)")
 
-    pipeline.attach("infer", Probe("detector", detector))
+    # Probe on the tracker (not infer) so obj_meta.object_id is populated.
+    pipeline.attach("tracker", Probe("detector", detector))
     return pipeline
 
 
