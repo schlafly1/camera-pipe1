@@ -16,6 +16,18 @@ See **[SPARK_DEV.md](SPARK_DEV.md)** for full up-to-date instructions (including
 Quick start (multi-stream):
 
 ```bash
+./start.sh          # containers + pipeline + query server, then monitor.py
+```
+
+`./start.sh --no-monitor` skips the monitor; `./stop.sh` stops the python
+processes (containers keep running, preserving the TensorRT engine cache).
+Restarting after a code change is just `./start.sh` again.
+
+UI: http://localhost:8001
+
+<details><summary>Manual equivalent (what start.sh does)</summary>
+
+```bash
 docker compose -f cam_multi.yml up -d
 docker exec -it camera-pipe1-deepstream-1 bash
 python3 pipeline_multi.py     # one process handles all cameras
@@ -26,8 +38,7 @@ In a second shell:
 docker exec -it camera-pipe1-deepstream-1 bash
 python3 query_server.py
 ```
-
-UI: http://localhost:8001
+</details>
 
 See SPARK_DEV.md for environment variables (especially `RTSP_TRANSPORT_CAMn=4` for reliable TCP), troubleshooting camera feeds, and the difference from the old per-camera setup.
 
@@ -40,8 +51,13 @@ docker exec -it camera-pipe1-deepstream-1 bash
 python3 pipeline_multi.py    # all cameras in one process
 
 python3 query_server.py      # search UI on :8001
-python3 monitor.py           # on host — per-camera stats
+python3 monitor.py           # on host — per-camera stats + event funnel
 ```
+
+The pipeline also writes a rotating log to `logs/pipeline.log` (every
+detection, VLM reject, skip, and error survives terminal scrollback), and
+heartbeats per-camera stats to `stats/cam*_stats.json` every 10s so
+`monitor.py` can tell a down camera from a quiet one.
 
 | Multi-stream | Legacy (per-camera) |
 |--------------|---------------------|

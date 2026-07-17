@@ -1,10 +1,11 @@
 """
 monitor.py — live performance monitor for camera-pipe1.
 
-Run on the Jetson Thor host (not inside a container):
+Run on the host (Jetson Thor or DGX Spark), not inside a container:
     python3 monitor.py
 
-Reads pipeline stats from ./stats/cam*_stats.json (written by pipeline2.py).
+Reads pipeline stats from ./stats/cam*_stats.json (written by
+pipeline_multi.py, heartbeat every ~10s even when idle).
 Runs tegrastats to get GPU/CPU/power/memory metrics.
 Refreshes every INTERVAL seconds.
 
@@ -22,7 +23,10 @@ import time
 
 STATS_GLOB   = "./stats/cam*_stats.json"
 INTERVAL     = 10    # seconds between display refreshes
-STALE_AFTER  = 30    # seconds before marking a camera as inactive
+STALE_AFTER  = 35    # no stats write for this long => pipeline not running
+FRAME_STALE  = 15    # no decoded frame for this long => camera feed down
+# Must match VLM_QUEUE_MAX in pipeline_multi.py (both default to 12)
+VLM_QUEUE_MAX = int(os.environ.get("VLM_QUEUE_MAX", "12"))
 
 
 # ── tegrastats reader ─────────────────────────────────────────────────────────
@@ -186,43 +190,78 @@ def display(ts, cams):
         rows.append("  (tegrastats not available — run on the Jetson host)")
 
     # ── per-camera pipelines ──────────────────────────────────────────────────
+    cams = sorted(cams, key=lambda x: x.get("camera_id", 0))
+    fresh = [s for s in cams if now - s.get("updated_at", 0) <= STALE_AFTER]
+
+    uptime = max((s.get("elapsed_s", 0) for s in fresh), default=0)
     rows.append("")
-    rows.append("Pipelines")
-    rows.append(f"  {'cam':<6}  {'queued/m':>8}  {'drops/m':>8}  {'saves/m':>8}  "
-                f"{'vlm avg':>8}  {'vlm max':>8}  {'q':>3}  status")
-    rows.append("  " + "-" * 68)
+    if fresh:
+        rows.append(f"Pipelines   (run uptime {uptime/3600:.1f}h — rates are per-min since start)")
+    else:
+        rows.append("Pipelines")
+    rows.append(f"  {'cam':<10}  {'frame':>6}  {'det/m':>7}  {'qd/m':>6}  {'sv/m':>6}  "
+                f"{'vlm avg':>8}  {'q':>3}  status")
+    rows.append("  " + "-" * 70)
 
     if not cams:
-        rows.append("  (no stats files — is pipeline2.py running inside the containers?)")
+        rows.append("  (no stats files — is pipeline_multi.py running inside the container?)")
     else:
-        for s in sorted(cams, key=lambda x: x.get("camera_id", 0)):
+        for s in cams:
             cam_id = s.get("camera_id", "?")
+            ctype  = (s.get("cam_type") or "?")[:6]
+            name   = f"cam{cam_id} {ctype}"
             age    = now - s.get("updated_at", 0)
 
             if age > STALE_AFTER:
-                rows.append(f"  cam{cam_id:<3}   {'--':>8}  {'--':>8}  {'--':>8}  "
-                            f"{'--':>8}  {'--':>8}  {'--':>3}  INACTIVE ({age:.0f}s ago)")
+                rows.append(f"  {name:<10}  {'--':>6}  {'--':>7}  {'--':>6}  {'--':>6}  "
+                            f"{'--':>8}  {'--':>3}  NO STATS ({age:.0f}s) — pipeline down?")
                 continue
 
+            frame_at = s.get("last_frame_at")
+            f_age    = (now - frame_at) if frame_at else None
+            det_m  = s.get("det_per_min", 0)
             q_m    = s.get("queue_per_min", 0)
-            dr_m   = s.get("drops_per_min", 0)
             sv_m   = s.get("saves_per_min", 0)
+            dr_m   = s.get("drops_per_min", 0)
             vlm_a  = s.get("vlm_ms_avg")
-            vlm_x  = s.get("vlm_ms_max")
             qdepth = s.get("queue_depth", 0)
 
-            if dr_m > 0:
+            if f_age is None:
+                status = "NO FRAMES YET — camera down?"
+            elif f_age > FRAME_STALE:
+                status = f"NO FRAMES ({f_age:.0f}s) — camera down?"
+            elif dr_m > 0:
                 status = "DROPPING  <-- VLM behind"
-            elif qdepth >= VLM_QUEUE_MAX_DISPLAY * 0.75:
+            elif qdepth >= VLM_QUEUE_MAX * 0.75:
                 status = "QUEUE HIGH"
             elif q_m == 0:
-                status = "idle"
+                status = "quiet (frames OK, no events)"
             else:
                 status = "ok"
 
+            f_str = f"{f_age:.0f}s" if f_age is not None else "--"
             rows.append(
-                f"  cam{cam_id:<3}   {q_m:>8.1f}  {dr_m:>8.1f}  {sv_m:>8.1f}  "
-                f"{_fmt_ms(vlm_a)}  {_fmt_ms(vlm_x)}  {qdepth:>3}  {status}"
+                f"  {name:<10}  {f_str:>6}  {det_m:>7.1f}  {q_m:>6.1f}  {sv_m:>6.1f}  "
+                f"{_fmt_ms(vlm_a)}  {qdepth:>3}  {status}"
+            )
+
+    # ── event funnel ──────────────────────────────────────────────────────────
+    if fresh:
+        rows.append("")
+        rows.append("Event funnel (totals this run — where detections stopped)")
+        rows.append(f"  {'cam':<6}  {'det':>7}  {'lowconf':>7}  {'dedup':>7}  {'throttl':>7}  "
+                    f"{'queued':>6}  {'drop':>5}  {'nofrm':>5}  {'stale':>5}  {'rej':>5}  "
+                    f"{'err':>4}  {'saved':>6}")
+        rows.append("  " + "-" * 88)
+        for s in fresh:
+            cam_id = s.get("camera_id", "?")
+            rows.append(
+                f"  cam{cam_id:<3}  {s.get('detections_total', 0):>7}  "
+                f"{s.get('low_conf_total', 0):>7}  {s.get('dedup_total', 0):>7}  "
+                f"{s.get('throttled_total', 0):>7}  {s.get('queued_total', 0):>6}  "
+                f"{s.get('drops_total', 0):>5}  {s.get('no_frame_total', 0):>5}  "
+                f"{s.get('stale_frame_total', 0):>5}  {s.get('vlm_reject_total', 0):>5}  "
+                f"{s.get('errors_total', 0):>4}  {s.get('saves_total', 0):>6}"
             )
 
     # ── guidance ──────────────────────────────────────────────────────────────
@@ -247,12 +286,41 @@ def display(ts, cams):
         if pct > 85:
             hints.append(f"  Power at {pct:.0f}% — throttling likely; try `sudo nvpmodel -m 2`")
 
-    total_drops = sum(s.get("drops_per_min", 0) for s in cams)
-    if total_drops > 0:
-        hints.append("  VLM queue drops > 0 — VLM can't keep pace with detections")
-        hints.append("    Options: offload Ollama to another Jetson, raise SAVE_INTERVAL, or use a smaller model")
+    # VLM throughput: is the single worker keeping up with the queue rate?
+    vlm_avgs = [s["vlm_ms_avg"] for s in fresh if s.get("vlm_ms_avg")]
+    total_q_m = sum(s.get("queue_per_min", 0) for s in fresh)
+    if vlm_avgs:
+        avg_ms = sum(vlm_avgs) / len(vlm_avgs)
+        capacity_m = 60000.0 / avg_ms  # events/min one serial worker can do
+        if total_q_m > capacity_m:
+            hints.append(f"  VLM saturated: cameras queue {total_q_m:.1f} evt/min but worker "
+                         f"capacity is ~{capacity_m:.1f} evt/min at {avg_ms/1000:.0f}s/event")
+            hints.append("    Options: smaller/faster VLM model, raise SAVE_INTERVAL, offload Ollama")
 
-    vlm_maxes = [s["vlm_ms_max"] for s in cams if s.get("vlm_ms_max")]
+    total_drops = sum(s.get("drops_total", 0) for s in fresh)
+    if total_drops > 0:
+        hints.append(f"  {total_drops} events dropped (queue full) — VLM can't keep pace with detections")
+
+    total_noframe = sum(s.get("no_frame_total", 0) for s in fresh)
+    if total_noframe > 0:
+        hints.append(f"  {total_noframe} events skipped with no usable JPEG — snapshot branch "
+                     f"lagging or camera feed gaps (see logs/pipeline.log)")
+
+    total_stale = sum(s.get("stale_frame_total", 0) for s in fresh)
+    if total_stale > 0:
+        hints.append(f"  {total_stale} events used a stale frame — image may not match the detection")
+
+    total_rej   = sum(s.get("vlm_reject_total", 0) for s in fresh)
+    total_saves = sum(s.get("saves_total", 0) for s in fresh)
+    if total_rej > 0 and total_rej >= max(total_saves, 1) * 0.3:
+        hints.append(f"  VLM rejected {total_rej} events vs {total_saves} saved — many detector "
+                     f"false positives (or stale frames); consider raising DETECT_MIN_CONF")
+
+    total_errs = sum(s.get("errors_total", 0) for s in fresh)
+    if total_errs > 0:
+        hints.append(f"  {total_errs} VLM worker errors — check logs/pipeline.log")
+
+    vlm_maxes = [s["vlm_ms_max"] for s in fresh if s.get("vlm_ms_max")]
     if vlm_maxes:
         m = max(vlm_maxes)
         if m > 15000:
@@ -275,9 +343,6 @@ def display(ts, cams):
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
-
-VLM_QUEUE_MAX_DISPLAY = 6  # matches VLM_QUEUE_MAX in pipeline2.py
-
 
 def main():
     _start_tegrastats()

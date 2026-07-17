@@ -1,6 +1,21 @@
 How to Restart the Camera Pipeline (pipeline_multi.py)
 =====================================================
 
+TL;DR — use the scripts (added 2026-07):
+
+    ./start.sh              # containers + pipeline + query server + monitor
+    ./start.sh --no-monitor # same, but return to the shell
+    ./stop.sh               # stop the python processes (containers stay up)
+    ./stop.sh --containers  # also stop the containers
+
+start.sh is restart-safe: it kills old pipeline/query processes first, so
+running it again after a code change is all you need. Logs go to
+./logs/pipeline.log (rotating), ./logs/pipeline-console.log (stdout/
+tracebacks), and ./logs/query_server.log.
+
+Everything below is the manual procedure the scripts automate.
+=====================================================
+
 The pipeline runs **inside** the Docker container, not on the host.
 This means you must use `docker exec` to manage the process.
 

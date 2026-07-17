@@ -13,6 +13,8 @@ Classes detected by TrafficCamNet:
 import datetime
 import glob
 import json
+import logging
+import logging.handlers
 import os
 import queue
 import shutil
@@ -59,8 +61,36 @@ TILER_W         = int(os.environ.get("TILER_W", "1280"))
 TILER_H         = int(os.environ.get("TILER_H", "720"))
 SNAPSHOT_DIR    = "/workspace/snapshots"
 STATS_DIR       = "/workspace/stats"
+LOG_DIR         = os.environ.get("LOG_DIR", "/workspace/logs")
+STATS_HEARTBEAT_S = float(os.environ.get("STATS_HEARTBEAT_S", "10.0"))
 RECONNECT_INTERVAL = 5
 RESTART_DELAY      = 10
+
+
+def _setup_logging():
+    """Log to stdout AND a rotating file, so REJECT/skip/error lines survive
+    the interactive terminal scrolling away (docker logs is empty — the
+    pipeline runs under `docker exec`)."""
+    logger = logging.getLogger("pipeline")
+    logger.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    logger.addHandler(sh)
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(
+            os.path.join(LOG_DIR, "pipeline.log"),
+            maxBytes=5 * 1024 * 1024, backupCount=3,
+        )
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except OSError as e:
+        logger.warning("File logging disabled: %s", e)
+    return logger
+
+
+log = _setup_logging()
 
 DETECT_CLASSES  = {0: "car", 1: "motorcycle", 2: "person"}
 # Cars raised 0.50 -> 0.75: TrafficCamNet hallucinates "car" on shadows/foliage
@@ -134,30 +164,51 @@ def camera_id_for_source(source_id, streams):
 
 # ── Performance stats (one file per camera for monitor.py) ────────────────────
 class StatsTracker:
-    _LATENCY_WINDOW = 20
+    """Per-camera event-funnel counters.
 
-    def __init__(self, camera_id, path):
+    The funnel, in order (each stage counts events that STOPPED there):
+      detections  objects of an interesting class seen by the PGIE
+      low_conf    rejected by DETECT_MIN_CONF
+      dedup       suppressed by tracker-id dedup (already emitted / probation)
+      throttled   suppressed by the (camera, class) save-interval throttle
+      queued      handed to the VLM worker
+      drops       dropped because the VLM queue was full
+      no_frame    worker found no usable JPEG for the camera
+      stale_frame worker used an old JPEG (counted, not a stop — save may follow)
+      vlm_reject  VLM said the object isn't in the frame (detector false positive)
+      errors      worker exception (Ollama/ChromaDB/etc.)
+      saves       embedded + stored in ChromaDB with a snapshot
+    """
+
+    _LATENCY_WINDOW = 20
+    _COUNTER_KEYS = (
+        "detections", "low_conf", "dedup", "throttled", "queued", "drops",
+        "no_frame", "stale_frame", "vlm_reject", "errors", "saves",
+    )
+
+    def __init__(self, camera_id, path, cam_type="street"):
         self._path = path
         self._camera_id = camera_id
+        self._cam_type = cam_type
         self._lock = threading.Lock()
         self._start = time.time()
-        self._queued = 0
-        self._drops = 0
-        self._saves = 0
+        self._counts = {k: 0 for k in self._COUNTER_KEYS}
+        self._last_frame = None   # wall time of last decoded frame (liveness)
+        self._frames = 0
         self._latencies = []
 
-    def record_queued(self):
-        with self._lock:
-            self._queued += 1
+    def record_frame(self, now):
+        # No lock: single float/int store per frame, torn reads are harmless.
+        self._last_frame = now
+        self._frames += 1
 
-    def record_drop(self):
+    def bump(self, key):
         with self._lock:
-            self._drops += 1
-        self.write(queue_depth=VLM_QUEUE_MAX)
+            self._counts[key] += 1
 
     def record_save(self, latency_s):
         with self._lock:
-            self._saves += 1
+            self._counts["saves"] += 1
             self._latencies.append(latency_s)
             if len(self._latencies) > self._LATENCY_WINDOW:
                 self._latencies.pop(0)
@@ -166,22 +217,27 @@ class StatsTracker:
         now = time.time()
         elapsed = max(now - self._start, 1.0)
         with self._lock:
+            counts = dict(self._counts)
             lats = self._latencies[:]
-            data = {
-                "camera_id":     self._camera_id,
-                "updated_at":    round(now, 3),
-                "elapsed_s":     round(elapsed, 1),
-                "queued_total":  self._queued,
-                "drops_total":   self._drops,
-                "saves_total":   self._saves,
-                "queue_per_min": round(self._queued / elapsed * 60, 1),
-                "drops_per_min": round(self._drops / elapsed * 60, 1),
-                "saves_per_min": round(self._saves / elapsed * 60, 1),
-                "vlm_ms_avg":    round(sum(lats) / len(lats) * 1000) if lats else None,
-                "vlm_ms_max":    round(max(lats) * 1000) if lats else None,
-                "vlm_ms_last":   round(lats[-1] * 1000) if lats else None,
-                "queue_depth":   queue_depth,
-            }
+        data = {
+            "camera_id":       self._camera_id,
+            "cam_type":        self._cam_type,
+            "run_started_at":  round(self._start, 3),
+            "updated_at":      round(now, 3),
+            "elapsed_s":       round(elapsed, 1),
+            "frames_total":    self._frames,
+            "last_frame_at":   round(self._last_frame, 3) if self._last_frame else None,
+            "det_per_min":     round(counts["detections"] / elapsed * 60, 1),
+            "queue_per_min":   round(counts["queued"] / elapsed * 60, 1),
+            "drops_per_min":   round(counts["drops"] / elapsed * 60, 1),
+            "saves_per_min":   round(counts["saves"] / elapsed * 60, 1),
+            "vlm_ms_avg":      round(sum(lats) / len(lats) * 1000) if lats else None,
+            "vlm_ms_max":      round(max(lats) * 1000) if lats else None,
+            "vlm_ms_last":     round(lats[-1] * 1000) if lats else None,
+            "queue_depth":     queue_depth,
+        }
+        for k in self._COUNTER_KEYS:
+            data[f"{k}_total"] = counts[k]
         try:
             with open(self._path, "w") as fh:
                 json.dump(data, fh)
@@ -193,13 +249,36 @@ class StatsRegistry:
     def __init__(self, streams):
         self._trackers = {}
         os.makedirs(STATS_DIR, exist_ok=True)
+        # Remove stats files from previous runs so monitor.py never shows a
+        # dead run's numbers as current (observed: 4-day-old files displayed
+        # as live). Every configured camera gets a fresh file immediately.
+        for old in glob.glob(os.path.join(STATS_DIR, "cam*_stats.json")):
+            try:
+                os.unlink(old)
+            except OSError:
+                pass
         for stream in streams:
             cam_id = stream["camera_id"]
             path = os.path.join(STATS_DIR, f"cam{cam_id}_stats.json")
-            self._trackers[cam_id] = StatsTracker(cam_id, path)
+            self._trackers[cam_id] = StatsTracker(
+                cam_id, path, cam_type=stream.get("cam_type", "street")
+            )
 
     def for_camera(self, camera_id):
         return self._trackers[camera_id]
+
+    def write_all(self, queue_depth=0):
+        for tracker in self._trackers.values():
+            tracker.write(queue_depth=queue_depth)
+
+
+def stats_heartbeat(stats_registry, event_queue):
+    """Rewrite every stats file periodically, even with zero events, so
+    monitor.py can tell 'pipeline down' (stale file) from 'camera quiet'
+    (fresh file, old last_frame_at) from 'no frames' (fresh file, no frames)."""
+    while True:
+        time.sleep(STATS_HEARTBEAT_S)
+        stats_registry.write_all(queue_depth=event_queue.qsize())
 
 
 # ── Probe: queue detections from all streams in the batch ─────────────────────
@@ -231,6 +310,7 @@ class ObjectDetector(BatchMetadataOperator):
             source_id = frame_meta.source_id
             camera_id = camera_id_for_source(source_id, self._streams)
             stats = self._stats.for_camera(camera_id)
+            stats.record_frame(now)
             pts_ns = frame_meta.buffer_pts
 
             # Determine if this is an office cam (throttled, droppable)
@@ -245,7 +325,9 @@ class ObjectDetector(BatchMetadataOperator):
                 cls = obj_meta.class_id
                 if cls not in DETECT_CLASSES:
                     continue
+                stats.bump("detections")
                 if obj_meta.confidence < DETECT_MIN_CONF[cls]:
+                    stats.bump("low_conf")
                     continue
 
                 # Per-object dedup via tracker id: emit once per unique track.
@@ -264,6 +346,7 @@ class ObjectDetector(BatchMetadataOperator):
                     te["count"] += 1
                     te["last"] = now
                     if te["emitted"] or te["count"] < MIN_TRACK_HITS:
+                        stats.bump("dedup")
                         continue
 
                 key = (camera_id, cls)
@@ -272,38 +355,39 @@ class ObjectDetector(BatchMetadataOperator):
                 # street cams a shorter one so real passing traffic is captured.
                 throttle = SAVE_INTERVAL if is_office else STREET_SAVE_INTERVAL
                 if now - self._last_save.get(key, 0) < throttle:
+                    stats.bump("throttled")
                     continue
                 self._last_save[key] = now
                 if te is not None:
                     te["emitted"] = True
                 event_id = self._next_event_id(camera_id)
                 label = DETECT_CLASSES[cls]
-                print(
+                log.info(
                     f"[Detect] cam{camera_id} {label} "
                     f"conf={obj_meta.confidence:.2f} evt={event_id}"
                 )
                 if self._q.qsize() >= VLM_QUEUE_MAX:
                     if is_office:
-                        print(
+                        log.info(
                             f"[Detect] VLM queue full ({VLM_QUEUE_MAX}), "
                             f"dropping office cam{camera_id} evt={event_id}"
                         )
-                        stats.record_drop()
+                        stats.bump("drops")
                         break
                     elif self._q.qsize() >= STREET_QUEUE_MAX:
                         # Street cams get priority, but still bail out if the
                         # worker has stalled — otherwise the queue grows without
                         # bound and leaks memory (observed at 120k+ items).
-                        print(
+                        log.info(
                             f"[Detect] VLM queue hard cap ({STREET_QUEUE_MAX}), "
                             f"dropping street cam{camera_id} evt={event_id} "
                             f"(worker stalled?)"
                         )
-                        stats.record_drop()
+                        stats.bump("drops")
                         break
                     else:
                         # Street cam: queue anyway (events are rare; protect them)
-                        print(
+                        log.info(
                             f"[Detect] VLM queue full but queuing street cam{camera_id} "
                             f"evt={event_id} (protecting real traffic)"
                         )
@@ -320,12 +404,12 @@ class ObjectDetector(BatchMetadataOperator):
                     "event_id":    event_id,
                     "queued_at":   now,
                 })
-                stats.record_queued()
+                stats.bump("queued")
                 break
 
 
 def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
-    """Return bytes of a reasonably fresh JPEG for the given camera.
+    """Return (jpeg_bytes, is_stale) for the given camera; (None, False) if none.
 
     Uses a time window (before and after detection time) to account for
     the snapshot being written slightly before/after the probe fires.
@@ -384,7 +468,7 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
         time.sleep(0.1)
 
     if not best_path:
-        return None
+        return None, False
 
     # Immediately copy to a safe temp file so multifilesink can't delete it
     # while we (or the caller) are reading / using the bytes.
@@ -396,21 +480,21 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
             data = fh.read()
         os.unlink(safe_path)  # clean temp
         if len(data) < 1000:
-            return None
+            return None, False
         if best_is_stale and camera_id is not None:
             age = time.time() - best_mtime
-            print(f"[VLM] Using stale frame for cam{camera_id} (age ~{age:.1f}s)")
-        return data
+            log.info(f"[VLM] Using stale frame for cam{camera_id} (age ~{age:.1f}s)")
+        return data, best_is_stale
     except Exception:
         # Fallback: try direct read (may race)
         try:
             with open(best_path, "rb") as fh:
                 data = fh.read()
             if len(data) > 1000:
-                return data
+                return data, best_is_stale
         except OSError:
             pass
-    return None
+    return None, False
 
 
 def vlm_worker(event_queue, stats_registry):
@@ -418,7 +502,7 @@ def vlm_worker(event_queue, stats_registry):
 
     client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
     collection = client.get_or_create_collection(COLLECTION)
-    print(f"[VLM Worker] Ready (model={VLM_MODEL})")
+    log.info(f"[VLM Worker] Ready (model={VLM_MODEL})")
 
     while True:
         det = event_queue.get()
@@ -428,14 +512,19 @@ def vlm_worker(event_queue, stats_registry):
         camera_id = det["camera_id"]
         stats = stats_registry.for_camera(camera_id)
         try:
-            jpeg_bytes = get_jpeg_after(det["queued_at"], camera_id=camera_id)
+            jpeg_bytes, jpeg_is_stale = get_jpeg_after(
+                det["queued_at"], camera_id=camera_id
+            )
             if not jpeg_bytes:
-                print(
+                log.info(
                     f"[VLM] No fresh frame within timeout, "
                     f"skipping cam{camera_id} evt={det['event_id']}"
                 )
+                stats.bump("no_frame")
                 stats.write(queue_depth=event_queue.qsize())
                 continue
+            if jpeg_is_stale:
+                stats.bump("stale_frame")
             jpeg_b64 = base64.b64encode(jpeg_bytes).decode()
 
             prompt = VLM_PROMPTS.get(
@@ -455,13 +544,14 @@ def vlm_worker(event_queue, stats_registry):
             # there, it's a detector false positive — drop it (don't embed
             # or persist an empty-scene "car").
             if _vlm_says_absent(description, det["class_id"]):
-                print(
+                log.info(
                     f"[VLM] cam{camera_id} evt={det['event_id']} REJECT "
                     f"{det['label']} (VLM sees none): {description[:70]}"
                 )
+                stats.bump("vlm_reject")
                 continue
 
-            print(
+            log.info(
                 f"[VLM] cam{camera_id} evt={det['event_id']} "
                 f"{det['label']}: {description}"
             )
@@ -495,10 +585,11 @@ def vlm_worker(event_queue, stats_registry):
                 }],
                 ids=[doc_id],
             )
-            print(f"[ChromaDB] Saved {doc_id} @ {det['wall_time']}")
+            log.info(f"[ChromaDB] Saved {doc_id} @ {det['wall_time']}")
             stats.record_save(time.time() - t_start)
         except Exception as e:
-            print(f"[VLM Worker] Error cam{camera_id} evt={det['event_id']}: {e}")
+            log.info(f"[VLM Worker] Error cam{camera_id} evt={det['event_id']}: {e}")
+            stats.bump("errors")
         finally:
             stats.write(queue_depth=event_queue.qsize())
 
@@ -647,7 +738,7 @@ def build_pipeline(detector, streams):
             sink = "nv3dsink" if platform.processor() == "aarch64" else "nveglglessink"
             pipeline.add(sink, "display", {"sync": 0, "qos": 0})
             pipeline.link(disp_sink, "display")
-            print(f"[Main] Live display ON — {n} streams in {rows}x{cols} tile")
+            log.info(f"[Main] Live display ON — {n} streams in {rows}x{cols} tile")
 
         if LIVE_STREAM:
             os.makedirs("/tmp/hls", exist_ok=True)
@@ -668,12 +759,12 @@ def build_pipeline(detector, streams):
             pipeline.link("q_hls", "streamconv")
             pipeline.link("streamconv", "streamenc")
             pipeline.link("streamenc", "hls")
-            print(f"[Main] Live HLS stream enabled at /hls/stream.m3u8 ({n} streams tiled)")
+            log.info(f"[Main] Live HLS stream enabled at /hls/stream.m3u8 ({n} streams tiled)")
 
     else:
         _add_jpeg_branch(pipeline)
         pipeline.link("mux", "infer", "tracker", "encoder")
-        print("[Main] Headless mode (set ENABLE_DISPLAY=1 or LIVE_STREAM=1 for live video)")
+        log.info("[Main] Headless mode (set ENABLE_DISPLAY=1 or LIVE_STREAM=1 for live video)")
 
     # Probe on the tracker (not infer) so obj_meta.object_id is populated.
     pipeline.attach("tracker", Probe("detector", detector))
@@ -683,15 +774,16 @@ def build_pipeline(detector, streams):
 def main():
     streams = load_streams()
     n = len(streams)
-    print(f"[Main] Starting multi-stream pipeline: {n} camera(s)")
+    log.info(f"[Main] Starting multi-stream pipeline: {n} camera(s)")
     for s in streams:
-        print(f"  cam{s['camera_id']}: {s['url']}")
+        log.info(f"  cam{s['camera_id']}: {s['url']}")
 
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
     stats_registry = StatsRegistry(streams)
     event_queue = queue.Queue()
     detector = ObjectDetector(event_queue, stats_registry, streams)
+    stats_registry.write_all()  # fresh files immediately, so monitor sees all cams
 
     worker = threading.Thread(
         target=vlm_worker,
@@ -700,20 +792,27 @@ def main():
     )
     worker.start()
 
+    heartbeat = threading.Thread(
+        target=stats_heartbeat,
+        args=(stats_registry, event_queue),
+        daemon=True,
+    )
+    heartbeat.start()
+
     try:
         while True:
-            print("[Main] Building pipeline...")
+            log.info("[Main] Building pipeline...")
             pipeline = build_pipeline(detector, streams)
             try:
                 pipeline.start().wait()
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                print(f"[Main] Pipeline error: {e}")
-            print(f"[Main] Pipeline stopped, restarting in {RESTART_DELAY}s...")
+                log.info(f"[Main] Pipeline error: {e}")
+            log.info(f"[Main] Pipeline stopped, restarting in {RESTART_DELAY}s...")
             time.sleep(RESTART_DELAY)
     except KeyboardInterrupt:
-        print("\nStopping...")
+        log.info("Stopping...")
     finally:
         event_queue.put(None)
         worker.join()
