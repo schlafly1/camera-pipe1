@@ -1,0 +1,99 @@
+How to Expose Ollama for Remote Access (for camera-pipe1)
+=========================================================
+
+Your pipeline (running in Docker) needs to talk to Ollama on another box.
+Ollama binds to 127.0.0.1 by default for security.
+
+Two common ways:
+
+## Option 1: Direct bind (0.0.0.0) — simpler but less secure
+
+On the remote box (where Ollama runs):
+
+# One-time test
+OLLAMA_HOST=0.0.0.0 ollama serve
+
+# Permanent with systemd (recommended)
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+
+sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null << 'EOC'
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0"
+EOC
+
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+sudo systemctl status ollama
+
+# Firewall (example with ufw)
+sudo ufw allow from 192.168.0.0/16 to any port 11434   # adjust subnet
+# More restrictive:
+# sudo ufw allow from 192.168.9.130 to any port 11434
+
+On the machine running the pipeline, set in .env:
+OLLAMA_HOST=http://<IP-OF-OLLAMA-BOX>:11434
+
+Test:
+curl http://<IP-OF-OLLAMA-BOX>:11434/api/tags
+
+## Option 2: SSH tunnel (recommended)
+
+No changes needed on the remote Ollama box (it can stay bound to 127.0.0.1).
+
+On the host that runs the DeepStream container:
+
+# One-time (run in a separate terminal or tmux)
+ssh -L 11434:localhost:11434 user@ollama-box -N
+
+Then in your .env (on the machine with the cameras):
+OLLAMA_HOST=http://127.0.0.1:11434
+
+Because cam_multi.yml uses network_mode: host, localhost inside the container
+is the same as localhost on the host, so the tunnel works directly.
+
+### Making the tunnel persistent
+
+Using autossh (easiest):
+
+sudo apt install autossh
+autossh -M 0 -N -o "ServerAliveInterval 30" -o "ServerAliveCountMax 3" \
+  -L 11434:localhost:11434 user@ollama-box
+
+Using a systemd user service:
+
+mkdir -p ~/.config/systemd/user
+
+cat > ~/.config/systemd/user/ollama-tunnel.service << 'EOF'
+[Unit]
+Description=Ollama SSH tunnel
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 11434:localhost:11434 user@ollama-box
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now ollama-tunnel
+
+## Important notes for this project
+
+- Because of network_mode: host in cam_multi.yml, localhost inside the container
+  == localhost on the host.
+- Make sure the models are pulled on the remote box:
+    ollama pull gemma4:12b
+    ollama pull nomic-embed-text
+- Test from inside the container:
+    docker exec -it camera-pipe1-deepstream-1 bash
+    curl http://127.0.0.1:11434/api/tags     # (for SSH tunnel)
+    # or
+    curl http://<remote-ip>:11434/api/tags   # (for direct)
+
+- Direct exposure (0.0.0.0) has no authentication. Anyone who can reach the port
+  can use your GPU/models.
+- SSH tunnel is encrypted and authenticated (use keys, not passwords).
+
