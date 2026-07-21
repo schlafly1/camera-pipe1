@@ -1,0 +1,144 @@
+
+I have developed a surveillance camera application for nvidia ubuntu boxes, using nvidia deepstream 9.0.
+It is running locally at: ~/sd/camera-pipe1 .
+It is posted on GitHub at: https://github.com/schlafly1/camera-pipe1/tree/multi-stream
+It currently runs on nvidia agx spark, but the intended target is nvidia jetson agx thor.
+
+Nvidia has just announced Deepstream 9.1, with new features potentially useful to my app.
+https://developer.nvidia.com/blog/build-a-multi-camera-3d-tracking-application-with-nvidia-deepstream-9-1-skills/
+I have cloned the GitHub repo to ~/sd/DeepStream , and copied the skills to ~/.claude/skills/.
+I ran:
+docker pull nvcr.io/nvidia/deepstream:9.1-triton-multiarch
+as the instructions say I need the docker image for dgx spark, while the thor can run the libraries directly.
+
+Now I need advice on what to do next.
+Should I forget deepstream 9.1, and migrate deepstream 9.0 to jetson thor?
+Upgrade the existing spark app to deepstream 9.1?
+Scrap the existing camera-pipe1 codebase, and use the new 9.1 features to make a new app?
+
+What is the deepstream 9.1 payoff? I am inclined to upgrade, just because the newer version is likely to be less buggy, and faster.
+But does it also have new features that are directly applicable to my app?
+
+Before we start coding, I would like to append a plan of action to this text file, so i understand the issues better.
+---
+
+=====================================================================
+PLAN OF ACTION — DeepStream 9.1 (appended 2026-07-20)
+=====================================================================
+
+DECISION: Upgrade the existing app in place to 9.1, staged. Do NOT rebuild
+from scratch, and do NOT migrate 9.0 to Thor first.
+
+Reasoning:
+  - The value of camera-pipe1 is the plumbing AROUND DeepStream: ChromaDB
+    storage, nomic embeddings, the FastAPI search UI, multi-stream
+    orchestration, and the new funnel diagnostics. None of that is made
+    obsolete by 9.1. Scrapping it to adopt one feature is backwards.
+  - Thor is the deployment target regardless. But 9.1 (released 2026-07-14)
+    already supports JetPack 7.2, which Thor runs. Doing 9.0->Thor and THEN
+    9.0->9.1 is two migrations. Instead: upgrade to 9.1 ON SPARK (dev box),
+    validate, then deploy the 9.1 app to Thor. One target version.
+  - "Newer = less buggy/faster" is a real but small benefit. The concrete
+    payoff is three specific new features, which matter very differently to
+    this app (see below).
+
+Hardware note: Spark (GB10) has 121 GB unified memory, ~37 GB in use today.
+The vLLM plugin's 40 GB requirement is feasible here, but it is a real
+budget item that competes with the rest of the pipeline.
+
+---------------------------------------------------------------------
+9.1 FEATURES RANKED BY FIT TO THIS APP
+---------------------------------------------------------------------
+
+1. NEW DETECTION MODELS  ->  DO FIRST (high value, low risk)
+   PeopleNetTransformer, PeopleNet v2.6.3, RT-DETR 2D.
+   - Directly attacks the precision problem the funnel diagnostics exposed:
+     TrafficCamNet hallucinates "car" on shadows/foliage (we raised car conf
+     to 0.75 as a band-aid), and ~10k person detections were rejected at the
+     0.30 threshold.
+   - Swapping the PGIE model is a CONFIG change (pgie_config_multi.yml), not
+     an architecture change. Class IDs / labels differ, so DETECT_CLASSES,
+     DETECT_MIN_CONF, and VLM_PROMPTS in pipeline_multi.py need remapping.
+   - Success metric: use the funnel table (det -> low_conf -> ... -> saved)
+     before/after to measure whether false positives and rejects drop.
+
+2. vLLM PLUGIN (Cosmos-Reason2-8B, in-pipeline)  ->  SPIKE, DON'T COMMIT
+   The `nvvllmvlm` GStreamer plugin runs a VLM inside the pipeline.
+   - Potential payoff: replaces the current fragile path (multifilesink
+     writes /tmp/frame_camN_*.jpg -> Python worker globs for a fresh frame
+     -> base64 -> remote Ollama gemma4:12b), which is the ~45s/event, single
+     -serial-worker throughput bottleneck.
+   - Costs / risks:
+     * Needs 40 GB GPU memory + a HuggingFace token + NVIDIA Open Model
+       License acceptance for Cosmos-Reason2-8B.
+     * PARADIGM SHIFT: the plugin does SEGMENT-based processing (describe a
+       time window of frames) vs the current PER-DETECTION snapshot (describe
+       this specific tracked car/person). Our search index is built on
+       per-object embeddings tied to a track id. Segment mode may lose that
+       granularity, or may be a net upgrade (real motion/event understanding).
+       This must be evaluated, not assumed.
+     * Description QUALITY for our search use case (Cosmos-Reason2 vs
+       gemma4:12b) is unknown and must be compared on real snapshots.
+   - Plan: isolated experiment first (see Phase 3). Keep the Ollama path as
+     the default until the spike proves out.
+
+3. MV3DT — MULTI-CAMERA 3D TRACKING  ->  SKIP (for now)
+   Globally consistent object IDs across overlapping camera views.
+   - Requires overlapping fields of view + camera calibration (AutoMagicCalib
+     helps, but it's real setup). Our street/residential cams mostly do not
+     overlap, and we have no current cross-camera identity requirement.
+   - Revisit only if a specific "follow this person across cameras" goal
+     appears.
+
+---------------------------------------------------------------------
+STAGED EXECUTION
+---------------------------------------------------------------------
+
+Phase 0 — Baseline (before changing anything)
+  - Let the current 9.0 app run and capture funnel numbers per camera from
+    stats/ + monitor.py. This is the yardstick for every later change.
+  - Tag the current working state in git (e.g. a `ds9.0-baseline` tag).
+
+Phase 1 — Base-image bump 9.0 -> 9.1 (low risk, do on Spark)
+  - Dockerfile: base image nvcr.io/nvidia/deepstream:9.0-triton-multiarch
+    -> 9.1-triton-multiarch (already pulled).
+  - Delete cached TensorRT engines so they rebuild for 9.1.
+  - Smoke test: pipeline_multi.py comes up on all cameras, frames flow,
+    events save, search UI works. pyservicemaker imports (BatchMetadataOperator,
+    Pipeline, Probe) are stable APIs and expected to just work.
+  - This alone delivers the "less buggy/faster" benefit. Validate, commit.
+
+Phase 2 — Better detector (highest-value feature)
+  - Import one new detector (start with PeopleNet v2.6.3 or RT-DETR 2D) via
+    the deepstream-import-vision-model skill.
+  - Update pgie_config_multi.yml + the class/conf/prompt maps in
+    pipeline_multi.py.
+  - Compare funnel numbers vs Phase 0 baseline. Keep whichever detector wins
+    on precision (fewer foliage false-positives, fewer VLM rejects).
+
+Phase 3 — vLLM plugin spike (isolated, time-boxed)
+  - Stand up the deepstream-vllm-plugin sample (install.sh, HF token) in a
+    SEPARATE experiment, not wired into the production pipeline.
+  - Feed it a couple of our RTSP streams; compare its segment descriptions to
+    the current per-detection gemma descriptions for search usefulness.
+  - Decide: (a) adopt and re-architect around segments, (b) adopt only as a
+    faster drop-in for per-frame description, or (c) stick with Ollama.
+  - No production change until this decision is made.
+
+Phase 4 — Deploy 9.1 app to Thor
+  - Thor runs the 9.1 libraries directly (no Spark container needed).
+  - Re-tune for Thor's memory/compute; re-run the funnel diagnostics there.
+
+Open questions to resolve during the phases:
+  - Do the new detectors' class taxonomies cover car + motorcycle + person
+    cleanly, or do we lose/gain classes?
+  - Is per-object (track-id) granularity worth keeping, or is segment-level
+    understanding actually better for the search product?
+  - Cosmos-Reason2 description quality vs gemma4:12b on OUR camera imagery.
+  - GPU-memory budget on Thor if the vLLM plugin is adopted (40 GB VLM +
+    pipeline + everything else).
+---
+
+
+
+

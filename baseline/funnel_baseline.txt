@@ -1,0 +1,18 @@
+# DeepStream 9.0 BASELINE funnel — captured 2026-07-20 20:14:10
+# git 0dec2be, detector=TrafficCamNet (resnet18), VLM=gemma4:12b via Ollama
+
+cam  type      up_h     frames    detect   lowconf     dedup    thrott    queued     drops   noframe     stale    vlmrej       err     saves
+--------------------------------------------------------------------------------------------------------------------------------------------
+cam1 office    93.8    6916522   6302911   6136969    152254     12277      1187       224         0       687       571         0       616
+cam2 office    93.8    6908708   5704864   5653983     45264      4466       912       239         0       550       513         0       399
+cam3 street    93.8    5631580    560273    560061       167        18        27         0         0        20        19         0         8
+cam4 street    93.8    2661323   3471815   3470797       820        23       175         0         0        69       131         0        44
+cam5 street    93.8    6965565  21186980  21080071    103153      1646      2110         0         0       819      2058         0        51
+cam6 street    93.8    2247055    369573    369290       253         7        23         0         0        10        15         0         8
+--------------------------------------------------------------------------------------------------------------------------------------------
+ALL                             37596416  37271171    301911     18437      4434       463         0      2155      3307         0      1126
+
+KEY RATIOS (the Phase 2 targets):
+  detections passing confidence gate : 0.87%  (325,245 of 37,596,416)
+  VLM-rejected as false positive     : 74.6%  (3,307 of 4,434 queued)
+  events saved to ChromaDB           : 1,126
