@@ -99,7 +99,18 @@ Phase 0 — Baseline (before changing anything)
     stats/ + monitor.py. This is the yardstick for every later change.
   - Tag the current working state in git (e.g. a `ds9.0-baseline` tag).
 
-Phase 1 — Base-image bump 9.0 -> 9.1 (low risk, do on Spark)
+Phase 1 — Base-image bump 9.0 -> 9.1  [DONE 2026-07-20]
+  GOTCHA (important): on the DGX Spark you must use the Spark-specific image
+  nvcr.io/nvidia/deepstream:9.1-triton-sbsa-dgx-spark, NOT 9.1-triton-multiarch.
+  The multiarch image ships libnvbufsurface.so (and other Jetson multimedia
+  libs) as dangling symlinks expecting a host mount the Spark doesn't provide,
+  so pyservicemaker fails at import with:
+      ImportError: libnvbufsurface.so.1.0.0: cannot open shared object file
+  The sbsa-dgx-spark image bundles the real versioned libs, mirroring 9.0.
+  Confirmed working: engine rebuilt for 9.1, all 6 cams inferring, VLM round
+  -trip saves to ChromaDB, search UI serves. Original notes:
+
+Phase 1 (original outline) — Base-image bump 9.0 -> 9.1 (low risk, do on Spark)
   - Dockerfile: base image nvcr.io/nvidia/deepstream:9.0-triton-multiarch
     -> 9.1-triton-multiarch (already pulled).
   - Delete cached TensorRT engines so they rebuild for 9.1.
