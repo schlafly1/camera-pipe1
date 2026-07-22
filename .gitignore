@@ -45,3 +45,6 @@ core.*
 models/**/*.onnx
 models/**/*.engine
 models/**/*.so
+
+# vLLM spike model cache (tens of GB)
+phase3-vllm-spike/hf_home/

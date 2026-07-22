@@ -29,6 +29,40 @@ installs vLLM until you run the steps below.
 2. Accept the license at https://huggingface.co/nvidia/Cosmos-Reason2-8B
    (NVIDIA Open Model License) with that account.
 
+## Pre-downloading the model (do this ahead of the spike)
+
+Sizes: ~16-20 GB on disk (8B params). The "40 GB" is the RUNTIME GPU-memory
+reservation, not the download. Host has ample space (2.9 TB free).
+
+Download on the HOST into a persistent dir, then mount it into the plugin
+container (the container's own HF cache is ephemeral). vLLM reads the standard
+HF cache layout, so download into a dedicated HF_HOME:
+
+```bash
+# 1. Install the HF CLI (host)
+pip install -U "huggingface_hub[cli]"
+
+# 2. Authenticate with the token from step 1 (paste when prompted)
+hf auth login          # older CLI: huggingface-cli login
+
+# 3. Download into a persistent cache dir (NOT ~/.cache, so it's easy to mount)
+export HF_HOME=~/sd/camera-pipe1/phase3-vllm-spike/hf_home
+hf download nvidia/Cosmos-Reason2-8B      # ~16-20 GB; resumable if interrupted
+
+# 4. Verify it landed
+du -sh $HF_HOME/hub/models--nvidia--Cosmos-Reason2-8B
+```
+
+Then in the spike run (step 2 of "Run steps" below), add the cache mount and
+point the container at it, so no re-download happens inside the container:
+
+```bash
+  -v ~/sd/camera-pipe1/phase3-vllm-spike/hf_home:/root/.cache/huggingface \
+  # and inside the container: export HF_HOME=/root/.cache/huggingface
+```
+
+NOTE: hf_home/ is gitignored (it's tens of GB) — see .gitignore.
+
 ## Image note (Spark-specific)
 
 The sample README launches the plugin in `9.1-triton-multiarch`. On the DGX
