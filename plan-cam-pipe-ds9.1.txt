@@ -119,7 +119,34 @@ Phase 1 (original outline) — Base-image bump 9.0 -> 9.1 (low risk, do on Spark
     Pipeline, Probe) are stable APIs and expected to just work.
   - This alone delivers the "less buggy/faster" benefit. Validate, commit.
 
-Phase 2 — Better detector (highest-value feature)
+Phase 2 — RESULTS [DONE 2026-07-22, but exposed the real bottleneck]
+  Chose NGC TAO trafficcamnet_transformer_lite = RT-DETR (resnet50), a modern
+  transformer in the SAME traffic domain (the 3 featured 9.1 detectors —
+  PeopleNet*/warehouse-RTDETR — have NO vehicle classes, so they were unusable
+  for a street app). Integrated + verified: engine builds (strongly-typed for
+  GB10), DDETR parser emits correctly-labeled detections, office-cam person
+  descriptions are accurate. Reversible via PGIE_CONFIG=pgie_config_multi.yml.
+
+  CRITICAL FINDING — RT-DETR made street-cam SAVES go to ZERO, and this
+  diagnoses the user's original "not collecting enough images" complaint:
+    - RT-DETR is more sensitive -> queues many more street events than resnet18.
+    - The single VLM worker (gemma4:12b, ~40-70 s/event) cannot keep up ->
+      queue_depth climbed to 95+ and events wait ~an hour.
+    - get_jpeg_after(queued_at) then can't find the detection-moment JPEG (it
+      rotated out of the 200-file /tmp ring) -> falls back to a STALE frame.
+    - The VLM sees an empty road -> "no person/vehicle visible" -> REJECT.
+    - Evidence: on every street cam, stale_frame ~= vlm_reject, saves=0, while
+      office cams (fast local frames, tiny queue) still save fine.
+  So the binding constraint on collecting images is VLM THROUGHPUT + the stale
+  -frame fallback, NOT the detector. This is exactly what Phase 3 (in-pipeline
+  VLM, no /tmp frame matching) is meant to fix. Cheaper interim options:
+    (a) skip events whose frame is already gone instead of feeding a stale one
+        (stop wasting ~50s of VLM time on guaranteed rejects),
+    (b) raise the street throttle so fewer events queue,
+    (c) parallelize / speed up the VLM worker.
+  DECISION NEEDED before more coding (see chat).
+
+Phase 2 (original outline) — Better detector (highest-value feature)
   - Import one new detector (start with PeopleNet v2.6.3 or RT-DETR 2D) via
     the deepstream-import-vision-model skill.
   - Update pgie_config_multi.yml + the class/conf/prompt maps in
