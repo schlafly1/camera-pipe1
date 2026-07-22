@@ -40,3 +40,8 @@ core.*
 .env
 .env.*
 *.override.yml
+
+# Detector model binaries (large / derived — see models/*/README.md to rebuild)
+models/**/*.onnx
+models/**/*.engine
+models/**/*.so

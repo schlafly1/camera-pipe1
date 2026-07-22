@@ -92,11 +92,14 @@ def _setup_logging():
 
 log = _setup_logging()
 
-DETECT_CLASSES  = {0: "car", 1: "motorcycle", 2: "person"}
-# Cars raised 0.50 -> 0.75: TrafficCamNet hallucinates "car" on shadows/foliage
-# in residential scenes at 0.54-0.70; real cars score ~0.9+. Streets see ~1 car/hr,
-# so precision matters far more than recall here.
-DETECT_MIN_CONF = {0: 0.75, 1: 0.50, 2: 0.30}
+# RT-DETR TrafficCamNet-Transformer class order (NGC): 0=Car 1=RoadSign
+# 2=Person 3=Bicycle. RoadSign is filtered out in pgie_config_rtdetr.txt.
+# We keep the app's "motorcycle" label/prompt for the two-wheeler (Bicycle) class.
+DETECT_CLASSES  = {0: "car", 2: "person", 3: "motorcycle"}
+# RT-DETR is far more precise than the old resnet18 (which hallucinated "car" on
+# foliage, forcing a 0.75 gate). The detector already gates at pre-cluster-
+# threshold=0.4; these are secondary per-class gates in the probe.
+DETECT_MIN_CONF = {0: 0.50, 2: 0.40, 3: 0.40}
 
 # Per-object dedup (requires nvtracker). Emit one event per unique track id so a
 # single passing car = one event instead of one per inference frame.
@@ -111,16 +114,16 @@ VLM_PROMPTS = {
         " year range, any visible damage or distinctive markings, direction of travel,"
         " and license plate text if legible."
     ),
-    1: (
-        "Describe this motorcycle or bicycle in 2-3 sentences. Include: type"
-        " (sport/cruiser/dirt bike/bicycle/scooter), color, make if recognizable,"
-        " rider's helmet color and clothing, any passenger, and direction of travel."
-    ),
     2: (
         "Describe this person in 2-3 sentences. Include: approximate age range and"
         " gender, hair color and length, clothing (shirt/jacket color and style,"
         " pants/skirt color, footwear), any accessories (backpack, hat, bag, phone),"
         " what they are doing, and which direction they are moving."
+    ),
+    3: (
+        "Describe this motorcycle or bicycle in 2-3 sentences. Include: type"
+        " (sport/cruiser/dirt bike/bicycle/scooter), color, make if recognizable,"
+        " rider's helmet color and clothing, any passenger, and direction of travel."
     ),
 }
 
@@ -135,9 +138,9 @@ _VLM_REFUSAL = (
 )
 _VLM_ABSENT_SUBJECT = {
     0: ("no vehicle", "no vehicles", "no car", "no cars", "not a vehicle"),
-    1: ("no motorcycle", "no motorcycles", "no bicycle", "no bicycles",
-        "no bike", "no bikes", "no scooter"),
     2: ("no person", "no people", "no individual", "no humans", "no pedestrian"),
+    3: ("no motorcycle", "no motorcycles", "no bicycle", "no bicycles",
+        "no bike", "no bikes", "no scooter"),
 }
 
 
@@ -673,7 +676,7 @@ def build_pipeline(detector, streams):
         pipeline.link(enc, fsink)
 
     pipeline.add("nvinfer", "infer", {
-        "config-file-path": "pgie_config_multi.yml",
+        "config-file-path": os.environ.get("PGIE_CONFIG", "pgie_config_rtdetr.txt"),
         "batch-size":       n,
     })
 

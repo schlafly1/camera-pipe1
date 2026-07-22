@@ -1,0 +1,40 @@
+# TrafficCamNet Transformer Lite (RT-DETR, resnet50) — traffic-domain detector.
+# Replaces the resnet18 TrafficCamNet PGIE (pgie_config_multi.yml).
+# Classes (NGC order): 0=Car 1=RoadSign 2=Person 3=Bicycle  (RoadSign filtered out).
+# Preprocessing/parser values taken from NVIDIA's DS 9.1 RT-DETR template
+# (deepstream-tracker-3d-multi-view/config_templates/config_pgie_rt_detr.txt).
+[property]
+gpu-id=0
+net-scale-factor=0.00392156862745098
+offsets=0;0;0
+model-color-format=0
+onnx-file=/workspace/models/trafficcamnet_transformer_lite/model/resnet50_trafficamnet_rtdetr.onnx
+labelfile-path=/workspace/models/trafficcamnet_transformer_lite/model/detector_labels.txt
+# Engine is built on first run for batch-size N (omit model-engine-file).
+infer-dims=3;544;960
+maintain-aspect-ratio=1
+network-mode=2
+network-type=0
+num-detected-classes=4
+# Drop RoadSign (class 1) at the detector — the app never uses it.
+filter-out-class-ids=1
+gie-unique-id=1
+process-mode=1
+interval=4
+# RT-DETR uses Hungarian matching (no NMS): cluster-mode=4.
+cluster-mode=4
+output-blob-names=pred_logits;pred_boxes
+output-tensor-meta=1
+parse-bbox-func-name=NvDsInferParseCustomDDETRTAO
+custom-lib-path=/workspace/models/trafficcamnet_transformer_lite/parser/libnvds_infercustomparser_tao.so
+# GB10 / Blackwell (DGX Spark) requires strongly-typed for the RT-DETR engine.
+# NOTE: on first build TensorRT 10.x logs one ERROR ("kFP16 flag" conflicts with
+# strongly-typed) then auto-retries without the flag and succeeds. The engine is
+# cached after that, so the error is one-time, not per-startup. Precision comes
+# from the ONNX; network-mode is effectively advisory under strongly-typed.
+strongly-typed=1
+workspace-size=1048576
+
+[class-attrs-all]
+pre-cluster-threshold=0.4
+topk=20
