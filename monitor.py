@@ -250,18 +250,19 @@ def display(ts, cams):
         rows.append("")
         rows.append("Event funnel (totals this run — where detections stopped)")
         rows.append(f"  {'cam':<6}  {'det':>7}  {'lowconf':>7}  {'dedup':>7}  {'throttl':>7}  "
-                    f"{'queued':>6}  {'drop':>5}  {'nofrm':>5}  {'stale':>5}  {'rej':>5}  "
-                    f"{'err':>4}  {'saved':>6}")
-        rows.append("  " + "-" * 88)
+                    f"{'queued':>6}  {'drop':>5}  {'oldskip':>7}  {'nofrm':>5}  {'stale':>5}  "
+                    f"{'rej':>5}  {'err':>4}  {'saved':>6}")
+        rows.append("  " + "-" * 96)
         for s in fresh:
             cam_id = s.get("camera_id", "?")
             rows.append(
                 f"  cam{cam_id:<3}  {s.get('detections_total', 0):>7}  "
                 f"{s.get('low_conf_total', 0):>7}  {s.get('dedup_total', 0):>7}  "
                 f"{s.get('throttled_total', 0):>7}  {s.get('queued_total', 0):>6}  "
-                f"{s.get('drops_total', 0):>5}  {s.get('no_frame_total', 0):>5}  "
-                f"{s.get('stale_frame_total', 0):>5}  {s.get('vlm_reject_total', 0):>5}  "
-                f"{s.get('errors_total', 0):>4}  {s.get('saves_total', 0):>6}"
+                f"{s.get('drops_total', 0):>5}  {s.get('stale_skip_total', 0):>7}  "
+                f"{s.get('no_frame_total', 0):>5}  {s.get('stale_frame_total', 0):>5}  "
+                f"{s.get('vlm_reject_total', 0):>5}  {s.get('errors_total', 0):>4}  "
+                f"{s.get('saves_total', 0):>6}"
             )
 
     # ── guidance ──────────────────────────────────────────────────────────────
@@ -300,6 +301,11 @@ def display(ts, cams):
     total_drops = sum(s.get("drops_total", 0) for s in fresh)
     if total_drops > 0:
         hints.append(f"  {total_drops} events dropped (queue full) — VLM can't keep pace with detections")
+
+    total_oldskip = sum(s.get("stale_skip_total", 0) for s in fresh)
+    if total_oldskip > 0:
+        hints.append(f"  {total_oldskip} events skipped as too-old (waited > MAX_EVENT_AGE_S) — VLM "
+                     f"backlog; frames gone before processing. Speed up/parallelize the VLM.")
 
     total_noframe = sum(s.get("no_frame_total", 0) for s in fresh)
     if total_noframe > 0:

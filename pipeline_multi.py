@@ -49,6 +49,12 @@ VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
 # Hard ceiling for street cams, which otherwise queue unconditionally. Keeps a
 # stalled worker from growing the queue without bound (memory leak safeguard).
 STREET_QUEUE_MAX = int(os.environ.get("STREET_QUEUE_MAX", str(VLM_QUEUE_MAX * 8)))
+# Max time an event may wait in the VLM queue before its frame is considered
+# gone / its scene stale. Past this, the worker skips it INSTANTLY (no VLM call)
+# instead of describing a stale frame the VLM would just reject. This lets a
+# backlogged worker drain junk in ms and catch up to events whose frames are
+# still fresh — the fix for street-cam saves=0 under VLM backlog.
+MAX_EVENT_AGE_S = float(os.environ.get("MAX_EVENT_AGE_S", "30.0"))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
 ENABLE_DISPLAY  = (
@@ -176,6 +182,8 @@ class StatsTracker:
       throttled   suppressed by the (camera, class) save-interval throttle
       queued      handed to the VLM worker
       drops       dropped because the VLM queue was full
+      stale_skip  skipped un-processed: waited > MAX_EVENT_AGE_S in the queue,
+                  so its frame is gone (worker backlog) — no VLM call made
       no_frame    worker found no usable JPEG for the camera
       stale_frame worker used an old JPEG (counted, not a stop — save may follow)
       vlm_reject  VLM said the object isn't in the frame (detector false positive)
@@ -186,7 +194,7 @@ class StatsTracker:
     _LATENCY_WINDOW = 20
     _COUNTER_KEYS = (
         "detections", "low_conf", "dedup", "throttled", "queued", "drops",
-        "no_frame", "stale_frame", "vlm_reject", "errors", "saves",
+        "stale_skip", "no_frame", "stale_frame", "vlm_reject", "errors", "saves",
     )
 
     def __init__(self, camera_id, path, cam_type="street"):
@@ -514,6 +522,22 @@ def vlm_worker(event_queue, stats_registry):
         t_start = time.time()
         camera_id = det["camera_id"]
         stats = stats_registry.for_camera(camera_id)
+
+        # Backlog guard: if this event sat in the queue longer than the frame
+        # is retained, the detection-moment JPEG is gone and the scene has
+        # moved on. Skip instantly (no glob wait, no VLM) so the worker can
+        # reach events whose frames are still fresh. Without this, a slow VLM
+        # feeds every backlogged event a stale frame -> guaranteed reject.
+        age = t_start - det["queued_at"]
+        if age > MAX_EVENT_AGE_S:
+            log.info(
+                f"[VLM] cam{camera_id} evt={det['event_id']} SKIP stale "
+                f"(waited {age:.0f}s > {MAX_EVENT_AGE_S:.0f}s in queue)"
+            )
+            stats.bump("stale_skip")
+            stats.write(queue_depth=event_queue.qsize())
+            continue
+
         try:
             jpeg_bytes, jpeg_is_stale = get_jpeg_after(
                 det["queued_at"], camera_id=camera_id
