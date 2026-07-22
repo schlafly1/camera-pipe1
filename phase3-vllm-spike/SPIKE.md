@@ -34,34 +34,42 @@ installs vLLM until you run the steps below.
 Sizes: ~16-20 GB on disk (8B params). The "40 GB" is the RUNTIME GPU-memory
 reservation, not the download. Host has ample space (2.9 TB free).
 
-Download on the HOST into a persistent dir, then mount it into the plugin
-container (the container's own HF cache is ephemeral). vLLM reads the standard
-HF cache layout, so download into a dedicated HF_HOME:
+DO NOT pip-install anything on the host. The DeepStream container already ships
+the `hf` CLI (huggingface_hub 1.24.0), and `/workspace/phase3-vllm-spike` is
+mounted from the host — so download FROM INSIDE the container straight into the
+host-mounted cache dir. Nothing touches the host Python.
 
 ```bash
-# 1. Install the HF CLI (host)
-pip install -U "huggingface_hub[cli]"
+# Cache dir lives under the repo (mounted into the container as /workspace/...)
+mkdir -p ~/sd/camera-pipe1/phase3-vllm-spike/hf_home
 
-# 2. Authenticate with the token from step 1 (paste when prompted)
-hf auth login          # older CLI: huggingface-cli login
+DS=$(docker compose -f ~/sd/camera-pipe1/cam_multi.yml ps -q deepstream)
 
-# 3. Download into a persistent cache dir (NOT ~/.cache, so it's easy to mount)
-export HF_HOME=~/sd/camera-pipe1/phase3-vllm-spike/hf_home
-hf download nvidia/Cosmos-Reason2-8B      # ~16-20 GB; resumable if interrupted
+# Authenticate once (interactive — paste the token; keeps it out of shell history)
+docker exec -it -e HF_HOME=/workspace/phase3-vllm-spike/hf_home "$DS" hf auth login
 
-# 4. Verify it landed
-du -sh $HF_HOME/hub/models--nvidia--Cosmos-Reason2-8B
+# Download into the mounted cache (resumable; safe to run alongside the pipeline)
+docker exec -it -e HF_HOME=/workspace/phase3-vllm-spike/hf_home "$DS" \
+  hf download nvidia/Cosmos-Reason2-8B
+
+# Verify it landed on the host
+du -sh ~/sd/camera-pipe1/phase3-vllm-spike/hf_home/hub/models--nvidia--Cosmos-Reason2-8B
 ```
 
-Then in the spike run (step 2 of "Run steps" below), add the cache mount and
-point the container at it, so no re-download happens inside the container:
+When the spike container runs (step 2 of "Run steps"), point it at this same
+cache so nothing re-downloads:
 
 ```bash
   -v ~/sd/camera-pipe1/phase3-vllm-spike/hf_home:/root/.cache/huggingface \
-  # and inside the container: export HF_HOME=/root/.cache/huggingface
+  # inside the spike container: export HF_HOME=/root/.cache/huggingface
 ```
 
-NOTE: hf_home/ is gitignored (it's tens of GB) — see .gitignore.
+Notes:
+- Files land root-owned on the host (the container runs as root — same as the
+  existing logs/, stats/, snapshots/). `sudo chown -R $USER` if you want.
+- hf_home/ is gitignored (tens of GB) — see .gitignore.
+- If you ever DO need host-side Python tooling that isn't in the container, use
+  an isolated env (`python3 -m venv .venv` or `pipx`/`uvx`), never system pip.
 
 ## Image note (Spark-specific)
 
