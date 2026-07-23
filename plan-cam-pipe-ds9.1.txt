@@ -154,7 +154,40 @@ Phase 2 (original outline) — Better detector (highest-value feature)
   - Compare funnel numbers vs Phase 0 baseline. Keep whichever detector wins
     on precision (fewer foliage false-positives, fewer VLM rejects).
 
-Phase 3 — vLLM plugin spike (isolated, time-boxed)
+Phase 3 — SPIKE RESULTS [DONE 2026-07-23] — PROMISING, quality is the win
+  Ran the deepstream-vllm-plugin (nvvllmvlm) with Cosmos-Reason2-8B in an
+  isolated container (9.1-sbsa image, pipeline stopped to free GPU), dry-run
+  against office cam1.
+
+  (1) FEASIBLE ON SPARK: install.sh works — vllm 0.21.0 + torch 2.11.0+cu130
+      have aarch64/Blackwell wheels; torch.cuda.is_available()=True. Model
+      loads from the mounted HF cache (16.3 GiB, ~2 min). This was the biggest
+      unknown and it passed.
+  (2) DESCRIPTION QUALITY clearly beats per-frame gemma4:12b, because it sees
+      MOTION across a 10s / 10-frame segment. Example output:
+        "A person with curly hair and glasses ... seated on a black office
+         chair facing three computer monitors ... using a mouse with their
+         right hand while occasionally typing or adjusting something ... desk
+         cluttered with a large white cup, cables, and peripherals ..."
+      It infers activity ("engaged with data ... spreadsheets ... working for
+      some time"), not just a static snapshot.
+  (3) THROUGHPUT: ~12 s compute per 10 s segment for ONE stream (input ~850
+      tok/s, output ~7 tok/s). Near real-time for one camera; for 6 streams it
+      relies on vLLM batching concurrent segments — needs its own measurement
+      before committing.
+  (4) PARADIGM CONFIRMED: output is per-10s-segment-per-stream, NOT per tracked
+      object. It has no snapshot/track id and no ChromaDB wiring. Adopting it
+      means reworking the index around time windows (or running it in
+      image-only mode as a per-frame describer, losing the motion advantage).
+
+  RECOMMENDATION: worth adopting, but it's a re-architecture, not a drop-in.
+  Next decision (see chat): (a) full segment-based redesign of the store/search
+  around 10s windows, vs (b) image-only per-detection drop-in for gemma, vs
+  (c) run both — segments for street "what happened" + keep per-object for
+  search. Also needs a 6-stream throughput test and a GPU-memory plan (the
+  model coexisting with the DeepStream pipeline on one GB10).
+
+Phase 3 (original outline) — vLLM plugin spike (isolated, time-boxed)
   - Stand up the deepstream-vllm-plugin sample (install.sh, HF token) in a
     SEPARATE experiment, not wired into the production pipeline.
   - Feed it a couple of our RTSP streams; compare its segment descriptions to
