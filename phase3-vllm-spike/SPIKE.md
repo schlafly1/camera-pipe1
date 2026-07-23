@@ -49,7 +49,10 @@ DS=$(docker compose -f ~/sd/camera-pipe1/cam_multi.yml ps -q deepstream)
 docker exec -it -e HF_HOME=/workspace/phase3-vllm-spike/hf_home "$DS" hf auth login
 
 # Download into the mounted cache (resumable; safe to run alongside the pipeline)
-docker exec -it -e HF_HOME=/workspace/phase3-vllm-spike/hf_home "$DS" \
+# HF_HUB_DISABLE_XET=1 is REQUIRED: this image's hf-xet backend crashes with
+# "Unable to parse string as hex hash value"; the flag forces classic HTTP.
+docker exec -it -e HF_HOME=/workspace/phase3-vllm-spike/hf_home \
+  -e HF_HUB_DISABLE_XET=1 "$DS" \
   hf download nvidia/Cosmos-Reason2-8B
 
 # Verify it landed on the host
