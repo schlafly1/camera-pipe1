@@ -1,0 +1,39 @@
+# Segment-sidecar config (option c, C1). Read by the nvvllmvlm plugin from the
+# working dir. Tuned from the sample: gpu_memory_utilization lowered so it
+# coexists with the RT-DETR pipeline (~40GB) on the 121GB GB10, and a street
+# -surveillance prompt.
+model:
+  path: "nvidia/Cosmos-Reason2-8B"
+  max_model_len: 20480
+  trust_remote_code: true
+  # 0.4 -> ~48GB ceiling; measured ~62GB peak alongside the pipeline. Fits.
+  gpu_memory_utilization: 0.4
+  gpu_id: 0
+  video_mode: 1
+  tensor_format: "pytorch"
+
+segment:
+  length_sec: 10
+  overlap_sec: 0
+  subsample_interval: 1
+  selection_fps: 1
+
+inference:
+  user_prompt: >-
+    This is an outdoor street/security camera. Briefly describe any vehicles
+    (color, type, make/model if visible, direction of travel), people (clothing,
+    what they are doing, direction), and bicycles or motorcycles. Note the time
+    of day and lighting. If nothing notable is happening, say so in one sentence.
+  max_tokens: 512
+  temperature: 0.4
+  top_p: 0.9
+  top_k: 100
+  repetition_penalty: 1.1
+
+pipeline:
+  queue_maxsize: 20
+  max_wait_timeout: 300
+
+video:
+  default_fps_numerator: 30
+  default_fps_denominator: 1
