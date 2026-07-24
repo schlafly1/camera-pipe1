@@ -64,6 +64,9 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
 .badge-car        { background: #3d2610; color: var(--car); }
 .badge-motorcycle { background: #2a1b40; color: var(--motorcycle); }
 .badge-unknown    { background: #222; color: var(--muted); }
+.badge-segment    { background: #10303d; color: #6fd3e8; }
+.card-segment     { border-left: 3px solid #10303d; }
+.card-segment .card-body { padding-top: 14px; }
 .cam-label { font-size: 0.72rem; color: var(--muted); }
 .card-time { font-size: 0.75rem; color: var(--muted); margin-bottom: 7px; }
 .card-desc { font-size: 0.84rem; line-height: 1.55; }
@@ -144,6 +147,14 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
         <label><input type="radio" name="sort" value="time_asc"> Oldest</label>
       </div>
     </div>
+    <div class="field" style="margin-left:8px">
+      <label>Search in</label>
+      <div class="sort-group">
+        <label><input type="radio" name="sources" value="both" checked> Both</label>
+        <label><input type="radio" name="sources" value="objects"> Objects</label>
+        <label><input type="radio" name="sources" value="segments"> Segments</label>
+      </div>
+    </div>
   </div>
 </form>
 
@@ -185,6 +196,7 @@ form.addEventListener('submit', async (e) => {
     label:       document.getElementById('label').value,
     camera_id:   document.getElementById('camera').value,
     search_type: document.querySelector('input[name=search_type]:checked').value,
+    sources:     document.querySelector('input[name=sources]:checked').value,
   });
 
   try {
@@ -259,13 +271,35 @@ document.getElementById('countBtn').addEventListener('click', async () => {
 });
 
 function card(r) {
+  const dist = r.distance != null ? `<span>dist&nbsp;${r.distance}</span>` : '';
+
+  // Segment "what happened" summaries: no snapshot, show the time window.
+  if (r.kind === 'segment') {
+    const win = (r.start_s != null && r.end_s != null)
+      ? `${Math.round(r.start_s)}–${Math.round(r.end_s)}s`
+      : (r.duration_s != null ? `${Math.round(r.duration_s)}s window` : '');
+    return `
+<div class="card card-segment">
+  <div class="card-body">
+    <div class="card-top">
+      <span class="badge badge-segment">segment</span>
+      <span class="cam-label">camera&nbsp;${r.camera_id ?? '?'}</span>
+    </div>
+    <div class="card-time">${fmtTime(r.wall_time)}${win ? ' · ' + win : ''}</div>
+    <div class="card-desc">${r.document || ''}</div>
+    <div class="card-foot">
+      ${dist}
+      <span>${r.id}</span>
+    </div>
+  </div>
+</div>`;
+  }
+
   const img = r.image_url
     ? `<a class="thumb-link" href="${r.image_url}" target="_blank">
          <img class="thumb" src="${r.image_url}" loading="lazy" alt="${r.label || ''}">
        </a>`
     : `<div class="no-img">No snapshot</div>`;
-
-  const dist = r.distance != null ? `<span>dist&nbsp;${r.distance}</span>` : '';
 
   return `
 <div class="card">

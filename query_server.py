@@ -30,7 +30,8 @@ except Exception:
 
 CHROMADB_HOST  = "localhost"
 CHROMADB_PORT  = 8000
-COLLECTION_NAME = "vision_events"
+COLLECTION_NAME = "vision_events"       # per-object detections (search substrate)
+SEGMENT_COLLECTION = "vision_segments"  # per-10/30s "what happened" summaries (option c)
 OLLAMA_MODEL   = "nomic-embed-text"
 SNAPSHOT_DIR   = "/workspace/snapshots"
 SEARCH_HTML    = "/workspace/search.html"
@@ -81,6 +82,7 @@ def build_where(start_time: str, end_time: str, label: str, camera_id: str = "")
 def fmt(doc_id, doc, meta, distance=None):
     return {
         "id":          doc_id,
+        "kind":        "object",
         "wall_time":   meta.get("wall_time"),
         "camera_id":   meta.get("camera_id"),
         "label":       meta.get("label"),
@@ -90,6 +92,73 @@ def fmt(doc_id, doc, meta, distance=None):
         "image_url":   meta.get("image_path"),
         "wall_time_s": round(float(meta.get("wall_time_s") or 0), 3),
     }
+
+
+def fmt_segment(doc_id, doc, meta, distance=None):
+    """Format a vision_segments hit. Segments have a time window instead of a
+    snapshot/label/confidence."""
+    return {
+        "id":          doc_id,
+        "kind":        "segment",
+        "wall_time":   meta.get("wall_time"),
+        "camera_id":   meta.get("camera_id"),
+        "label":       "segment",
+        "confidence":  None,
+        "document":    doc,
+        "distance":    round(float(distance), 3) if distance is not None else None,
+        "image_url":   None,
+        "wall_time_s": round(float(meta.get("wall_time_s") or 0), 3),
+        "start_s":     meta.get("start_s"),
+        "end_s":       meta.get("end_s"),
+        "duration_s":  meta.get("duration_s"),
+    }
+
+
+def build_where_segment(start_time: str, end_time: str, camera_id: str = ""):
+    """Where-filter for segments: time + camera only (segments have no label)."""
+    conditions = []
+    start_ts = parse_local_dt(start_time)
+    end_ts   = parse_local_dt(end_time)
+    if start_ts is not None:
+        conditions.append({"wall_time_s": {"$gte": start_ts}})
+    if end_ts is not None:
+        conditions.append({"wall_time_s": {"$lte": end_ts}})
+    if camera_id:
+        conditions.append({"camera_id": {"$eq": int(camera_id)}})
+    if not conditions:
+        return None
+    return conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+
+def _search_collection(collection, text, search_type, where, n, formatter, embedding=None):
+    """Run exact / semantic / browse search over one collection; return formatted
+    rows. `embedding` is precomputed for semantic search so we embed once."""
+    out = []
+    t = text.strip()
+    if t and search_type == "exact":
+        kwargs = {"where_document": {"$contains": t}, "limit": n,
+                  "include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        res = collection.get(**kwargs)
+        for i, doc_id in enumerate(res["ids"]):
+            out.append(formatter(doc_id, res["documents"][i], res["metadatas"][i]))
+    elif t:
+        kwargs = {"query_embeddings": [embedding], "n_results": n}
+        if where:
+            kwargs["where"] = where
+        res = collection.query(**kwargs)
+        for i, doc_id in enumerate(res["ids"][0]):
+            out.append(formatter(doc_id, res["documents"][0][i],
+                                 res["metadatas"][0][i], res["distances"][0][i]))
+    else:
+        kwargs = {"limit": n, "include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        res = collection.get(**kwargs)
+        for i, doc_id in enumerate(res["ids"]):
+            out.append(formatter(doc_id, res["documents"][i], res["metadatas"][i]))
+    return out
 
 
 @app.get("/count")
@@ -145,73 +214,59 @@ def query(
     label: str = "",
     camera_id: str = "",
     search_type: str = "semantic",
+    sources: str = "both",   # "objects", "segments", or "both"
 ):
-    where = build_where(start_time, end_time, label, camera_id)
-
-    try:
-        collection = chroma_client.get_collection(COLLECTION_NAME)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
-
-    output = []
     t = text.strip()
 
-    if t and search_type == "exact":
-        kwargs = {
-            "where_document": {"$contains": t},
-            "limit": n,
-            "include": ["documents", "metadatas"],
-        }
-        if where:
-            kwargs["where"] = where
-        try:
-            results = collection.get(**kwargs)
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"ChromaDB get error: {e}")
+    # A label filter implies object search (segments have no label).
+    want_objects  = sources in ("both", "objects")
+    want_segments = sources in ("both", "segments") and not label
 
-        for i, doc_id in enumerate(results["ids"]):
-            output.append(fmt(doc_id, results["documents"][i], results["metadatas"][i]))
-
-    elif t:
+    # Embed once (semantic) and reuse for both collections.
+    embedding = None
+    if t and search_type != "exact":
         try:
-            resp = ollama.embeddings(model=OLLAMA_MODEL, prompt=t)
-            embedding = resp["embedding"]
+            embedding = ollama.embeddings(model=OLLAMA_MODEL, prompt=t)["embedding"]
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Ollama error: {e}")
 
-        kwargs = {"query_embeddings": [embedding], "n_results": n}
-        if where:
-            kwargs["where"] = where
+    output = []
+
+    if want_objects:
         try:
-            results = collection.query(**kwargs)
+            col = chroma_client.get_collection(COLLECTION_NAME)
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
+        where = build_where(start_time, end_time, label, camera_id)
+        try:
+            output += _search_collection(col, text, search_type, where, n, fmt, embedding)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"ChromaDB query error: {e}")
 
-        for i, doc_id in enumerate(results["ids"][0]):
-            output.append(fmt(
-                doc_id,
-                results["documents"][0][i],
-                results["metadatas"][0][i],
-                results["distances"][0][i],
-            ))
-
-    else:
-        kwargs = {"limit": n, "include": ["documents", "metadatas"]}
-        if where:
-            kwargs["where"] = where
+    if want_segments:
+        # The segments collection may not exist yet (sidecar never run) — skip quietly.
         try:
-            results = collection.get(**kwargs)
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"ChromaDB get error: {e}")
+            seg_col = chroma_client.get_collection(SEGMENT_COLLECTION)
+        except Exception:
+            seg_col = None
+        if seg_col is not None:
+            where_seg = build_where_segment(start_time, end_time, camera_id)
+            try:
+                output += _search_collection(seg_col, text, search_type, where_seg,
+                                             n, fmt_segment, embedding)
+            except Exception as e:
+                raise HTTPException(status_code=503, detail=f"ChromaDB segment query error: {e}")
 
-        for i, doc_id in enumerate(results["ids"]):
-            output.append(fmt(doc_id, results["documents"][i], results["metadatas"][i]))
-
+    # Merge/sort across both collections. Distances are comparable (same embedder).
     if sort_by == "time_desc":
         output.sort(key=lambda x: x["wall_time_s"] or 0, reverse=True)
     elif sort_by == "time_asc":
         output.sort(key=lambda x: x["wall_time_s"] or 0)
+    elif t and search_type != "exact":
+        # relevance: nearest first; rows without a distance (browse) go last
+        output.sort(key=lambda x: x["distance"] if x["distance"] is not None else 1e9)
 
+    output = output[:n]   # respect max results across the merged set
     return {"query": text, "count": len(output), "results": output}
 
 
