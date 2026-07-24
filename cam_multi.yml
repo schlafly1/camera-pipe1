@@ -57,3 +57,40 @@ services:
       VLM_QUEUE_MAX: "${VLM_QUEUE_MAX:-12}"
       CHROMADB_HOST: "127.0.0.1"
       CHROMADB_PORT: "8000"
+
+  # Option (c) segment sidecar: Cosmos-Reason2 "what happened" summaries for the
+  # STREET cams -> ChromaDB `vision_segments`. Opt-in (profile), heavy (~7min
+  # model load, ~20GB GPU). Image is pre-built by the Phase 3 spike process
+  # (vllm-ds-spike:latest = sbsa base + install.sh + chromadb/ollama clients).
+  # Start with:  docker compose -f cam_multi.yml --profile segments up -d segments
+  # Requires the DeepStream repo cloned at ../DeepStream (for the nvvllmvlm plugin).
+  segments:
+    image: vllm-ds-spike:latest
+    profiles: ["segments"]
+    runtime: nvidia
+    network_mode: host
+    privileged: true
+    env_file: .env          # loads RTSP_URL_CAM*/OLLAMA_HOST literally (bash-source breaks on '&')
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      CUDA_VISIBLE_DEVICES: "0"
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_OFFLINE: "1"        # model is cached; never hit the network
+      HF_HUB_DISABLE_XET: "1"
+      CHROMADB_HOST: "127.0.0.1"
+      CHROMADB_PORT: "8000"
+      SEGMENT_COLLECTION: "vision_segments"
+      EMBED_MODEL: "nomic-embed-text"
+    volumes:
+      - .:/workspace
+      - ../DeepStream/src/apps/reference_apps/deepstream-vllm-plugin:/home/vllm_ds_plugin
+      - ./phase3-vllm-spike/hf_home:/root/.cache/huggingface
+    working_dir: /workspace/segments
+    # Reset the image's inherited `bash` entrypoint (it was committed from an
+    # interactive container) so the command runs directly.
+    entrypoint: ["python3"]
+    command: ["segment_ingest.py", "--converter-mode", "gpu"]
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    restart: unless-stopped

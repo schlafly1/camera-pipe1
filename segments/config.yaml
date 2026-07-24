@@ -13,7 +13,10 @@ model:
   tensor_format: "pytorch"
 
 segment:
-  length_sec: 10
+  # 30s windows (C2): coarser but lets 4 street cams share one GPU. selection_fps
+  # kept at 1 -> ~30 frames/segment. If the service lags (queue drops), lower
+  # selection_fps (fewer frames) before shortening the window.
+  length_sec: 30
   overlap_sec: 0
   subsample_interval: 1
   selection_fps: 1
