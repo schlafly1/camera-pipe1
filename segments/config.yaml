@@ -13,9 +13,13 @@ model:
   tensor_format: "pytorch"
 
 segment:
-  # 30s windows (C2): coarser but lets 4 street cams share one GPU. selection_fps
-  # kept at 1 -> ~30 frames/segment. If the service lags (queue drops), lower
-  # selection_fps (fewer frames) before shortening the window.
+  # 30s windows (C2), 1 frame/sec (~30 frames/window). Known-working config.
+  # NOTE: selection_fps is INTEGER-typed in the plugin (min 1); to go below 1fps
+  # you must set selection_fps=0 and use subsample_interval on the raw ~30fps
+  # stream (e.g. 90 -> ~10 frames). At full rate cam3/cam5 lag behind cam4/cam6
+  # (aggregate < 4x realtime). max_tokens is trimmed to speed generation; the
+  # real fix for sustained 4-cam coverage is C4 event-triggering (skip idle
+  # windows) rather than analyzing every window on every camera.
   length_sec: 30
   overlap_sec: 0
   subsample_interval: 1
@@ -27,7 +31,7 @@ inference:
     (color, type, make/model if visible, direction of travel), people (clothing,
     what they are doing, direction), and bicycles or motorcycles. Note the time
     of day and lighting. If nothing notable is happening, say so in one sentence.
-  max_tokens: 512
+  max_tokens: 256
   temperature: 0.4
   top_p: 0.9
   top_k: 100
