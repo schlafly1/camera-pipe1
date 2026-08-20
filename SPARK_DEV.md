@@ -2,7 +2,13 @@
 
 Develop on the **DGX Spark** with a **single DeepStream 9 container** running
 all RTSP streams through one batched `nvstreammux` → `nvinfer` pipeline.
-Deploy the same layout on **Jetson Thor** at the edge.
+Deploy the same Python code on **Jetson Thor** at the edge — but natively,
+not in Docker (see "Native Thor runbook" below): NVIDIA publishes DeepStream
+container images for Spark (SBSA-DGX) and x86, but not for Jetson — a Jetson
+image would have to be cross-built on an x86 host, which isn't worth the
+maintenance burden when JetPack already ships DeepStream 9.1 natively on
+Thor. The pipeline code is identical either way; only how dependencies get
+installed differs.
 
 ## Architecture
 
@@ -174,6 +180,7 @@ Search UI: http://localhost:8001
 | `pgie_config_multi.yml` | TrafficCamNet config (batch-size overridden at runtime) |
 | `pipeline2.py` | Legacy per-camera pipeline (keep for rollback) |
 | `cam1.yml` | Legacy per-camera compose |
+| `Dockerfile`, `cam_multi.yml` | Spark-only — Thor runs natively, no Docker (see "Native Thor runbook") |
 
 ## Environment variables
 
@@ -207,9 +214,56 @@ Use `docker compose -f cam_multi.yml stop` (not `down`) to preserve the engine.
 
 No changes to `cam_multi.yml` or `pipeline_multi.py`.
 
-## Deploy to Thor
+## Native Thor runbook (no Docker)
 
-Same compose file and code. On Thor `.env`:
+NVIDIA doesn't publish a DeepStream container image for Jetson (only Spark
+SBSA-DGX and x86) — a Jetson image can only be produced by cross-building on
+an x86 host. That's not worth maintaining just to keep deployment uniform
+with Spark, especially since JetPack 7.2 already ships DeepStream 9.1
+natively on Thor. So: `cam_multi.yml` / `Dockerfile` / `docker compose` are
+**Spark-only**. On Thor, the same Python files (`pipeline_multi.py`,
+`streams_config.py`, `query_server.py`, `monitor.py`) run directly on the
+host inside a venv. Migrate in stages — each isolates one variable — rather
+than flipping everything at once.
+
+### 0. Prerequisites (Thor, native)
+
+```bash
+# Confirm DeepStream 9.1 is actually installed and find its install path
+deepstream-app --version
+ls /opt/nvidia/deepstream/     # expect deepstream-9.1/
+
+# Python env — use --system-site-packages so the venv can see JetPack's
+# system GStreamer/GObject bindings (gi, etc.) that pyservicemaker needs
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install pyyaml chromadb ollama fastapi uvicorn Pillow
+
+# The pyservicemaker wheel ships inside the DeepStream install (mirrors the
+# Dockerfile's container path — confirm the exact path with `find`):
+find /opt/nvidia/deepstream -iname 'pyservicemaker*.whl'
+.venv/bin/pip install /opt/nvidia/deepstream/deepstream/service-maker/python/pyservicemaker*.whl
+
+# Match the Dockerfile's LD_LIBRARY_PATH / GST_PLUGIN_PATH (add to ~/.bashrc
+# or a launch script so pipeline_multi.py finds libnvds_service_maker etc.)
+export LD_LIBRARY_PATH=/opt/nvidia/deepstream/deepstream-9.1/lib:/opt/nvidia/deepstream/deepstream/lib:$LD_LIBRARY_PATH
+export GST_PLUGIN_PATH=/opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins:$GST_PLUGIN_PATH
+```
+
+If any of these paths don't match what JetPack 7.2 actually installed,
+adjust to match — the Dockerfile's `ENV` lines are the reference for what
+needs to resolve, not a guarantee the native install uses identical paths.
+
+### 1. Clone + config
+
+Same as Spark's "Full setup" steps: clone the `multi-stream` branch, copy
+your real `.env` over, `mkdir -p chroma_data snapshots stats`. Confirm Thor
+can actually reach the camera LAN (`RTSP_URL_CAM*` addresses) before
+assuming it's on the same network as Spark.
+
+### 2. Hybrid mode first (lowest risk)
+
+Detection runs on Thor, VLM calls stay on Spark over LAN — isolates one
+variable (can Thor's decode+detect keep up) before touching VLM placement:
 
 ```env
 OLLAMA_HOST=http://<spark-lan-ip>:11434
@@ -218,7 +272,41 @@ FRAME_H=720
 HEADLESS=1
 ```
 
-Run `monitor.py` on the Thor host to watch per-camera stats in `./stats/`.
+```bash
+source .venv/bin/activate
+python3 pipeline_multi.py          # one shell, all cameras
+python3 query_server.py            # second shell
+python3 monitor.py                 # third shell (or from a separate login)
+```
+
+No `docker exec`, no compose lifecycle — use `tmux`/`screen` or a systemd
+unit per script to keep them running across a disconnect, and just re-run
+the same commands to restart.
+
+Expect a fresh TensorRT engine build on first run (~5 min) — engines are
+architecture-specific and don't carry over from Spark's GB10. It's a plain
+file on disk (no `docker compose stop`-vs-`down` distinction natively) —
+just don't delete it between runs.
+
+### 3. Measure
+
+`monitor.py` is already host-side and pipeline-agnostic — same tool as
+Spark, writing to `./stats/` (queue depth, stale/no_frame/reject counts,
+tegrastats GPU/power), so the numbers compare directly.
+
+### 4. On-device VLM (only after hybrid mode is validated)
+
+`ollama pull` the winning model (see `eval_vlm_models.py`) onto Thor, set
+`OLLAMA_HOST=http://127.0.0.1:11434`, rerun `monitor.py` and compare against
+step 3. If Thor can't sustain it, revert to the hybrid `.env` from step 2 —
+one-line change, no code involved.
+
+### 5. Out of scope for now
+
+The `segments/` Cosmos-Reason2 sidecar (C1/C2) needs vLLM on top of
+DeepStream and stays Spark-only for now — a heavier, separate component.
+Revisit (including whether vLLM is even practical natively on Thor) only
+once the base pipeline is proven stable there.
 
 ## Rollback
 

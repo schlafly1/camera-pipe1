@@ -81,32 +81,10 @@ The description of your system — ingest RTSP, detect objects, describe with VL
 embed into ChromaDB — is exactly the Metropolis VSS (Video Search and
 Summarization) blueprint pattern. The "agentic" layer sits on top of that.
 
-### NemoClaw
-
-NemoClaw is NVIDIA's open-source agentic orchestration stack, shipped
-NemoClaw-ready in JP7.2:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nvidia-ai-hpc/NemoClaw/main/install.sh | bash
-```
-
-It wraps an LLM with tool-calling, memory, and planning. The bundled **Jetson
-agent skills** are developer tools, not runtime pipeline features:
-
-| Skill | What it does | One-time value for this project |
-|---|---|---|
-| Memory optimization | Tunes bootloader carveouts, kernel reservations, userspace processes | Run once before scaling to 4+ cameras; may recover several GB |
-| Model benchmarking | Tests TensorRT precisions and batch sizes automatically | Find optimal nvinfer config for TrafficCamNet on Thor |
-| Linux customization | BSP and carrier-board config | Not needed unless you build custom hardware |
-
-**Practical step**: run the memory optimization skill once on the host before
-going to 4 cameras. It automates what would otherwise take days of manual tuning.
-
 ### Building an agent loop on top of camera-pipe1
 
-Rather than adopting NemoClaw's full runtime for the pipeline, add a lightweight
-agent loop to `query_server.py`. The Ollama client is already available; Gemma4
-is already running. The loop is ~60–80 lines:
+Add a lightweight agent loop to `query_server.py`. The Ollama client is already
+available; Gemma4 is already running. The loop is ~60–80 lines:
 
 ```
 Every N minutes:
@@ -144,27 +122,27 @@ migration target.
    Guaranteed GPU bandwidth for DeepStream regardless of what Ollama is doing.
    Test with gemma3:12b first.
 
-2. **NemoClaw memory skill** — one-time run on the host to tune memory allocation
-   before scaling to 4 cameras. Low effort, potentially meaningful headroom gain.
-
-3. **Agent summary loop** — add to `query_server.py` once the pipeline is stable
+2. **Agent summary loop** — add to `query_server.py` once the pipeline is stable
    and producing good descriptions. Small code change, qualitatively changes what
    the system can do.
 
-4. **Metropolis VSS** — reference reading only.
+3. **Metropolis VSS** — reference reading only.
 
 ---
 
 ## Caveats
 
-- JP7.2 release notes say **DeepStream 8.0**; this project uses **DeepStream 9.0**
-  (`pyservicemaker`). Verify with `deepstream-app --version` inside the container.
-  MIG setup via `CUDA_VISIBLE_DEVICES` should work regardless of DS version, but
-  confirm pyservicemaker respects it.
+- Thor is now confirmed running **JetPack 7.2 with DeepStream 9.1 natively**
+  (superseding the JP7.2-ships-DS8.0 note that was here before). Still verify
+  with `deepstream-app --version` inside the container before assuming
+  parity with Spark's image — Spark's `Dockerfile` pins a
+  `9.1-triton-sbsa-dgx-spark` base specifically because the generic
+  `9.1-triton-multiarch` image doesn't work there (dangling symlinks for
+  Jetson multimedia libs it expects the host to mount). Thor is a real
+  Jetson device, not the Spark's SBSA-DGX setup, so it likely needs a
+  different base image tag — check the NGC catalog for the correct
+  Thor/JetPack 7.2 DeepStream 9.1 image rather than reusing the Spark one.
 
 - MIG is marked **technology preview** in JP7.2. Profile names and memory splits
   for Thor are not yet fully documented. Check the actual device before designing
   around specific partition sizes.
-
-- NemoClaw is newly released. The GitHub repo and NVIDIA developer forums are the
-  primary documentation sources; third-party guides don't exist yet.
