@@ -10,6 +10,12 @@ maintenance burden when JetPack already ships DeepStream 9.1 natively on
 Thor. The pipeline code is identical either way; only how dependencies get
 installed differs.
 
+The permanent split (see "Native Thor runbook" → "Hybrid mode") is Thor for
+capture + detection (what DeepStream hardware is built for) and Spark for
+the VLM (general-purpose AI box, more memory to run a large model). Spark's
+own DeepStream container in this section is for development/testing before
+things move to Thor, not a second production deployment target.
+
 ## Architecture
 
 ```
@@ -196,6 +202,7 @@ Search UI: http://localhost:8001
 | `VLM_MODEL` | `gemma4:26b` | |
 | `SAVE_INTERVAL` | `30.0` | Min seconds between saves per class per camera (only applies to office cams). Raise if VLM can't keep up (see monitor.py). |
 | `VLM_QUEUE_MAX` | `12` | Shared queue across all cameras |
+| `MAX_EVENT_AGE_S` | `300.0` | How long an event may sit in the VLM queue before being dropped as stale. Sized for the Thor/Spark split, where a slow remote VLM (measured p95 60-150s, see `eval_vlm_results.json`) shouldn't cost a dropped detection — Thor's capture+detect never blocks on this. Lower it back toward the old 30s if running the VLM locally instead. |
 | `CAM_TYPE_CAMn` | `street` | "office" (test/high-volume, throttled + droppable when VLM busy) or "street" (real low-volume; VLM on every detection, never throttled). Set e.g. CAM_TYPE_CAM1=office, CAM_TYPE_CAM3=street. Office cams are only used for testing and can be dropped to protect street cams. |
 
 ## First run
@@ -260,16 +267,26 @@ your real `.env` over, `mkdir -p chroma_data snapshots stats`. Confirm Thor
 can actually reach the camera LAN (`RTSP_URL_CAM*` addresses) before
 assuming it's on the same network as Spark.
 
-### 2. Hybrid mode first (lowest risk)
+### 2. Hybrid mode — the target architecture, not a fallback
 
-Detection runs on Thor, VLM calls stay on Spark over LAN — isolates one
-variable (can Thor's decode+detect keep up) before touching VLM placement:
+This is where the two boxes end up permanently, not a stepping stone to
+on-device VLM: Thor is the hardware DeepStream is built for (decode + batched
+`nvinfer`, uninterrupted), Spark is the general-purpose AI box (Ollama,
+plenty of unified memory for a large VLM, maybe more than one model). The
+`event_queue` / `vlm_worker` thread split in `pipeline_multi.py` already
+decouples them in-process — capture and detection never block on the VLM
+call, so it doesn't matter that a remote model over LAN takes 60-150s
+(`eval_vlm_results.json`) as long as street-cam volume stays low (a few
+detections/hour). That's what `MAX_EVENT_AGE_S=300` (see env var table
+above) is sized for — don't leave it at the old 30s default here, or nearly
+every event gets dropped as stale before the VLM ever sees it.
 
 ```env
 OLLAMA_HOST=http://<spark-lan-ip>:11434
 FRAME_W=1280
 FRAME_H=720
 HEADLESS=1
+MAX_EVENT_AGE_S=300
 ```
 
 ```bash
@@ -294,14 +311,35 @@ just don't delete it between runs.
 Spark, writing to `./stats/` (queue depth, stale/no_frame/reject counts,
 tegrastats GPU/power), so the numbers compare directly.
 
-### 4. On-device VLM (only after hybrid mode is validated)
+### 4. On-device VLM — fallback only, not the goal
 
-`ollama pull` the winning model (see `eval_vlm_models.py`) onto Thor, set
-`OLLAMA_HOST=http://127.0.0.1:11434`, rerun `monitor.py` and compare against
-step 3. If Thor can't sustain it, revert to the hybrid `.env` from step 2 —
-one-line change, no code involved.
+Running the VLM locally on Thor (`OLLAMA_HOST=http://127.0.0.1:11434`) is a
+disaster-recovery option if Spark is unreachable, not something to migrate
+toward — Thor is smaller and shares GPU with the pipeline itself, and
+`eval_vlm_results.json` already shows every evaluated model well over any
+real-time budget even with the GPU to itself. If you do need it, drop
+`MAX_EVENT_AGE_S` back toward 30s (a local call has no LAN round-trip to
+budget for) and expect worse throughput than hybrid mode.
 
-### 5. Out of scope for now
+### 5. Headroom for more street cams (once hybrid mode is validated)
+
+With VLM off Thor's critical path, added camera capacity is bounded by
+Thor's decode + batched `nvinfer` throughput, not by anything VLM-related.
+That's a `deepstream-profile-pipeline`-skill question (batch size, stream
+count vs. GPU headroom) — measure with `monitor.py` before assuming Thor can
+just absorb more feeds.
+
+### 6. Multiple VLM workers / models on Spark (future)
+
+`pipeline_multi.py` currently runs a single `vlm_worker` thread, so VLM
+calls are serial. The `queue.Queue` is already thread-safe, so running
+several worker threads (or splitting by camera/class across models, e.g. one
+model for people, another for vehicles) is a small change — but confirm
+Spark can hold more than one model resident at once (unified memory size)
+before assuming real concurrency; Ollama may otherwise just serialize on the
+GPU anyway.
+
+### 7. Out of scope for now
 
 The `segments/` Cosmos-Reason2 sidecar (C1/C2) needs vLLM on top of
 DeepStream and stays Spark-only for now — a heavier, separate component.

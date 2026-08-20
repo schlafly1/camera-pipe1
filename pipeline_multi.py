@@ -54,7 +54,12 @@ STREET_QUEUE_MAX = int(os.environ.get("STREET_QUEUE_MAX", str(VLM_QUEUE_MAX * 8)
 # instead of describing a stale frame the VLM would just reject. This lets a
 # backlogged worker drain junk in ms and catch up to events whose frames are
 # still fresh — the fix for street-cam saves=0 under VLM backlog.
-MAX_EVENT_AGE_S = float(os.environ.get("MAX_EVENT_AGE_S", "30.0"))
+# Default sized for the Thor/Spark split: capture+detect runs on Thor and never
+# blocks on this, so a slow remote VLM (measured p95 60-150s per model in
+# eval_vlm_results.json) just means a longer wait, not a dropped event — as
+# long as street-cam volume stays low (a few detections/hour). Lower this back
+# toward the old 30s default only if running the VLM locally and low latency.
+MAX_EVENT_AGE_S = float(os.environ.get("MAX_EVENT_AGE_S", "300.0"))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
 ENABLE_DISPLAY  = (
