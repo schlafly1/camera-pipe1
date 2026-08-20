@@ -1,0 +1,1198 @@
+{
+  "rows": [
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_car_evt8.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 46.54,
+      "description": "The vehicle is a white SUV traveling from right to left on the road. It appears to be a modern model from the late 2010s or 2020s, though the specific make and model are not identifiable, and no license plate or distinct markings are visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src1_motorcycle_evt302.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 35.0,
+      "description": "There is no motorcycle or bicycle visible in this image. It shows a person sitting at a desk with multiple computer monitors in an indoor setting.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_car_evt51.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 56.0,
+      "description": "A vehicle is not clearly visible in the image. There is a dark shape on the road in the distance, but it is too blurry to identify its body style, make, model, or any other specific details.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_car_evt1.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 56.0,
+      "description": "The vehicle is a dark-colored, modern SUV traveling toward the right side of the frame. While the specific make, model, and license plate are not legible, the vehicle appears to be in good condition with no visible damage.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt184.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 62.71,
+      "description": "Due to the distance and low resolution of the image, it is not possible to determine the person's age, gender, or hair details. They appear to be wearing light-colored clothing and are moving toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_motorcycle_evt29.jpg",
+      "camera_id": 6,
+      "label": "motorcycle",
+      "latency_s": 53.15,
+      "description": "A person is riding a dark-colored scooter or small motorcycle along the road in the distance. The rider is wearing a white helmet and dark clothing, and they are traveling toward the right side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt113.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 64.61,
+      "description": "A dark-colored bicycle is being ridden by a single individual traveling toward the left side of the frame. The rider is wearing a white helmet and a white shirt.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt104.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 55.0,
+      "description": "A lone rider is riding a dark-colored bicycle toward the right side of the frame. The rider is wearing a white shirt and dark shorts and is not wearing a helmet.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_person_evt4.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 55.5,
+      "description": "A young adult male with short, light-colored hair is walking toward the camera across a paved surface. He is wearing a grey t-shirt, dark-colored pants, and dark shoes, while carrying a large teal and orange backpack.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_car_evt334.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 19.43,
+      "description": "There are no vehicles visible in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt132.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 54.11,
+      "description": "This man, likely in his 20s or 30s, has short light-colored hair and is walking toward the left side of the frame. He is shirtless, wearing dark shorts and dark flip-flops, and is not carrying any accessories.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt398.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 78.57,
+      "description": "This person appears to be an adult male who is walking toward the viewer along a paved path. He is wearing a light-colored, short-sleeved shirt and dark-colored shorts with dark footwear. Due to the distance, details regarding his hair and any accessories are not clearly visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_car_evt72.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 44.44,
+      "description": "This vehicle is a dark-colored, modern SUV traveling from right to left in the background. Due to the distance and image quality, specific details such as the make, model, and license plate are not discernible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_motorcycle_evt613.jpg",
+      "camera_id": 5,
+      "label": "motorcycle",
+      "latency_s": 44.4,
+      "description": "No motorcycle or bicycle is visible in this image; it shows two people walking along a paved path.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_car_evt404.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 74.88,
+      "description": "The vehicle is a white hatchback, likely a Toyota Corolla from the mid-2010s, which appears to be stationary on a driveway. There are no visible markings or damage on the vehicle, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_car_evt5.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 39.23,
+      "description": "This is a white sedan, likely a modern model from the 2010s or 2020s. It is positioned facing toward the left of the frame, and no specific damage, identifying markings, or license plate text are visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src1_person_evt9.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 62.21,
+      "description": "This older woman has short, gray hair and is wearing a white long-sleeved shirt and dark-colored pants. She is not wearing any visible accessories and is sitting still while working in front of multiple computer monitors.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt567.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 23.4,
+      "description": "I'm sorry, but there is no motorcycle or bicycle present in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src1_motorcycle_evt2579.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 25.71,
+      "description": "There is no motorcycle or bicycle visible in this image; it shows an indoor computer workstation setup.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_person_evt12.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 76.32,
+      "description": "This young girl with blonde hair is wearing a white bicycle helmet and a black long-sleeved top with white trim. She is wearing black pants and white sneakers while standing on a paved area, and she appears to be moving slowly toward the left.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt1926.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 25.09,
+      "description": "I cannot provide a description of a person because there is no person visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt919.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 69.83,
+      "description": "This middle-aged man has short, light-colored hair and is wearing a light-colored t-shirt and light-colored pants. He is sitting stationary at a desk, using a computer and holding a mouse while wearing glasses and a watch.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_car_evt20.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 60.72,
+      "description": "The vehicle is a white, subcompact hatchback that shows no visible damage or distinctive markings. Based on its styling, it appears to be a modern model from approximately the 2015\u20132023 year range. The car is currently stationary, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt69.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 71.97,
+      "description": "This middle-aged man has short, curly white hair and wears glasses. He is wearing a light-colored short-sleeved shirt and light-colored shorts while sitting at a desk. He is not moving and is focused on the content across his multiple computer monitors.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt736.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 33.63,
+      "description": "Due to the extreme visual distortion and glitching in the image, it is impossible to identify a motorcycle or bicycle, its type, color, make, or any details regarding a rider's clothing or direction of travel.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt2003.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 47.8,
+      "description": "A rider on an orange and black sportbike is traveling toward the right on the computer screen. The rider is wearing a reddish-brown helmet and a matching red and brown leather jacket with no passengers.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src1_person_evt139.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 60.5,
+      "description": "This young adult male, likely in his 20s or 30s, has short, dark hair and is wearing a dark-colored shirt and dark-colored pants. He is currently stationary, sitting at a desk equipped with multiple computer monitors and is not moving in any direction.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt36.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 65.36,
+      "description": "An adult with short dark hair is walking from left to right across the background of the scene. They are wearing a light-colored shirt and dark pants, with no visible accessories or bags.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt1783.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 85.26,
+      "description": "The person, whose age and gender are difficult to determine from the distance, has dark, medium-length hair. They are wearing a dark-colored long-sleeved top and dark pants while walking from the right toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam6_src5_car_evt8.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 70.19,
+      "description": "A white compact SUV/crossover is driving on the paved road in the upper right of the frame, appearing to move leftward along the curve. The vehicle has roof rails and tinted rear windows, consistent with a model like a Toyota RAV4 from roughly the mid-2010s, though the exact make and model can't be confirmed. No visible damage or distinctive markings are apparent, and the license plate is not legible at this distance.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam2_src1_motorcycle_evt302.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 36.62,
+      "description": "There is no motorcycle or bicycle in this image, so none of the requested details (type, color, make, rider's helmet or clothing, passenger, or direction of travel) apply. The scene instead shows a man with gray hair seated at an indoor workstation with multiple computer monitors, a laptop, keyboards, and a desk. If you intended a different photo, please share it and I'll describe the vehicle you're looking for.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_car_evt51.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 28.01,
+      "description": "No vehicle is present in this image, so there is no color, body style, make/model, damage, direction of travel, or license plate to report. The scene shows only a gravel foreground, a paved path, and a wooded background under a surveillance camera overlay (\"IPC Hidden Meadow at Tanks\").",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam6_src5_car_evt1.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 37.37,
+      "description": "A single vehicle is faintly visible in the upper-left background, parked in a shaded area near a structure. It appears to be a dark-colored van or small truck, though the heavy shadows and low resolution make the exact make, model, and year impossible to confirm. No damage, markings, or legible license plate are discernible, and the vehicle appears stationary rather than in motion.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_person_evt184.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 58.45,
+      "description": "The figure is a small, distant adult whose gender is difficult to confirm but who appears to be wearing a bright orange/red short\u2011sleeved shirt and light\u2011colored hair or a hat, with darker lower clothing. They are crouched or bent low near the shaded tree line in the center of the frame, with no clearly visible backpack, bag, or phone. The person seems to be moving or leaning toward the right side of the scene.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam6_src5_motorcycle_evt29.jpg",
+      "camera_id": 6,
+      "label": "motorcycle",
+      "latency_s": 31.82,
+      "description": "There is no motorcycle, bicycle, scooter, or any other vehicle present in this image, so details like type, color, make, helmet, or direction of travel cannot be provided. The only person visible is a pedestrian in a white shirt and dark shorts walking along the paved road on the right side of the frame. The rest of the scene consists of a grassy embankment, a chain-link fence enclosing a utility area, and a wooded hillside.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_motorcycle_evt113.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 24.94,
+      "description": "The vehicle appears to be a bicycle with a dark-colored frame, though the make is not discernible from the image. The rider is wearing a white short-sleeved top and light-colored shorts, with no visible helmet. There is no passenger on the bike, and the rider is traveling leftward along the road.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam3_src2_motorcycle_evt104.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 18.91,
+      "description": "A bicycle is visible at the far left edge of the frame, ridden by a person in a white shirt and a light-colored helmet. No passenger is present, and the bike's make is not discernible. The rider is traveling toward the left side of the scene.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam3_src2_person_evt4.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 33.5,
+      "description": "The person appears to be an adult whose hair is not visible because it is covered by a bright orange hard hat. They are wearing a light-colored short-sleeved shirt, dark gray or black pants, and dark shoes, and they have a large orange-and-white bag or backpack strapped to their back. They are walking forward along the paved road, moving generally toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam5_src4_car_evt334.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 33.3,
+      "description": "No vehicle is present in this image, so there is no color, body style, make, model, year, damage, direction of travel, or license plate to report. The scene shows only an empty concrete driveway curving through a shaded, tree-lined landscape with shrubs and a large yucca plant, captured by an outdoor camera (timestamp 2026\u201107\u201121 16:42:01, \"IPC\" watermark).",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam5_src4_person_evt132.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 34.27,
+      "description": "An elderly person, appearing male, with short white/gray hair is walking across a concrete driveway. They are wearing a reddish-orange short-sleeved shirt over a green undershirt, olive-green shorts, and dark flip-flop sandals, with no visible hat, bag, or other accessories. They are moving from the right side of the frame toward the left.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam5_src4_person_evt398.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 35.75,
+      "description": "An older adult, likely male, with short white/gray hair is seen from behind, wearing a light-colored short-sleeved shirt and light-toned pants with simple footwear. He appears to be using a walking aid (walker or cane) and is moving away from the camera, proceeding down the tree-shaded path into the distance. No clear backpack, hat, or bag is visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_car_evt72.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 35.21,
+      "description": "No vehicle is visible in this image. The scene shows only a sun-dappled dirt or gravel clearing in the foreground bordered by dense trees and shrubs, with a timestamp and the camera label \"IPC Hidden Meadow at Tanks\" overlaid on the frame. Therefore there is no color, body style, make/model, year, damage, direction of travel, or license plate to report.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam5_src4_motorcycle_evt613.jpg",
+      "camera_id": 5,
+      "label": "motorcycle",
+      "latency_s": 25.15,
+      "description": "This is a standard upright adult bicycle (not a sport, cruiser, dirt bike, or scooter) with a dark frame and what appears to be a green front basket or cargo bag. The rider is not wearing a helmet; she has light hair and is dressed in a light tan/pink short-sleeved top and dark pants, and there is no passenger. She is traveling toward the camera, moving down the shaded paved path.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam5_src4_car_evt404.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 61.15,
+      "description": "A silver SUV / wagon-style crossover is parked at the right edge of the frame, seen from the rear three-quarter view with its tailgate and horizontal red\u2011and\u2011amber taillight clusters visible. The body and lighting design suggest a mid\u20112000s model (comparable to a Nissan Pathfinder or Ford Escape), and there is no visible damage, distinctive markings, or legible license plate. The vehicle is stationary, oriented with its rear toward the camera and its front pointing off to the right.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam3_src2_car_evt5.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 40.07,
+      "description": "A white four-door sedan, consistent with a mid-2010s Chevrolet Malibu (approx. 2013\u20132016), is seen from a rear three-quarter angle. It shows no visible damage or distinctive markings, and the license plate is not legible. The vehicle is traveling leftward, exiting the frame along the curved concrete driveway.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam2_src1_person_evt9.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 30.52,
+      "description": "An older adult with short, light (white/gray) hair and glasses is seated at a cluttered desk, wearing a light-colored, short-sleeved shirt. No jacket, hat, backpack, or bag is visible, and their lower body and footwear are obscured by the desk and chair. They are sitting still, facing away from the camera toward a row of computer monitors, appearing to work or read the screens.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_motorcycle_evt567.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 51.18,
+      "description": "There is no motorcycle or bicycle in this image, so the requested details (type, rider's helmet, passenger, etc.) don't apply. The only vehicle present is a dark blue/gray car (an SUV or wagon) on the paved road, with its red taillight visible at the left end, indicating it is oriented toward the right. No rider, passenger, or two\u2011wheeled vehicle can be identified.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam2_src1_motorcycle_evt2579.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 28.71,
+      "description": "There is no motorcycle, bicycle, scooter, or any similar vehicle present in this image, so I can't provide the requested description. The photo actually shows an indoor office or workspace with a wooden ceiling, two framed windows, and a desk holding several computer monitors, a laptop, keyboards, and a chair with a rust-colored jacket draped over it. If you intended to attach a different image containing a vehicle, please share it and I'll be glad to describe it.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam3_src2_person_evt12.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 25.07,
+      "description": "An adult woman with blonde hair pulled back into a ponytail is walking along a paved path. She is wearing a white visor, a black short-sleeved shirt, black pants, and white sneakers, and she is holding a phone in one hand. She is moving forward along the path, heading toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam6_src5_person_evt1926.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 39.37,
+      "description": "There is no person visible in this image, so the requested details (age, gender, hair, clothing, footwear, accessories, activity, and direction of movement) cannot be provided. The scene shows only an outdoor area with vegetation, a curved road, rocks, and a metal fence/ladder structure bearing a small blue tag, captured by a fisheye security camera. If you intended to describe a different frame or a person I'm missing, please share a clearer image and I'll be glad to help.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam1_src0_person_evt919.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 45.41,
+      "description": "An older adult male with short, curly gray hair and glasses is seated at a desk, wearing a light-colored short-sleeved t-shirt and light pants, with a wristwatch on his left arm. He is holding a small dark device in his hand and has a pen or stylus tucked in his mouth, appearing to work or look at the two computer monitors in front of him. His footwear is not visible, and he is facing toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam3_src2_car_evt20.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 23.53,
+      "description": "A white four-door sedan, consistent with a 2012\u20132014 Toyota Camry, is parked at the left edge of a concrete driveway. The car is angled with its rear toward the camera and no visible damage or distinctive markings are apparent. Its license plate is not legible in the image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam1_src0_person_evt69.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 38.73,
+      "description": "An older adult with short, curly light-colored hair and glasses is seated at a cluttered desk, facing left, with hands positioned on a keyboard and mouse in front of multiple monitors. They are wearing a light-colored short-sleeved shirt and light shorts, and have a watch on one wrist. The person is stationary while working at the computer, not moving in any particular direction.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam1_src0_motorcycle_evt736.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 25.77,
+      "description": "There is no motorcycle, bicycle, scooter, or rider visible in this image, so details like type, color, make, helmet, or direction of travel cannot be provided. The frame is a heavily distorted, black-and-white view of what appears to be an indoor room containing furniture and electronic equipment, rendered with severe pixelation and compression artifacts. As no two-wheeled vehicle or person is present, none of the requested attributes apply.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam1_src0_motorcycle_evt2003.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 35.99,
+      "description": "There is no motorcycle or bicycle in this image, so the requested details (type, color, make, rider's helmet, clothing, passenger, and direction of travel) cannot be provided. The scene is an indoor workspace showing a desk with multiple computer monitors, a keyboard in the foreground, a window with blinds, and some cluttered shelving. Because no vehicle or rider is present, none of the specified attributes apply.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam2_src1_person_evt139.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 48.56,
+      "description": "There is no person visible in this image, so I can't provide the requested details about age, gender, hair, clothing, or movement. The frame is a black\u2011and\u2011white surveillance view of an unoccupied room\u2014likely an office or monitoring area\u2014showing several computer monitors on cluttered desks, a barred window on the left, and bare walls. If you meant to upload a different photo that includes a person, please share it and I'll describe them.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam4_src3_person_evt36.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 58.35,
+      "description": "The figure is an adult whose exact age and gender are hard to confirm in the hazy image, but they appear to be a person wearing a light-colored (white or pale gray) short-sleeved top and light pants, with hair not clearly distinguishable. They seem to be carrying or resting near a light-colored bag or backpack. The person is lying down or crouched low on the ground at the edge of the shaded tree line, remaining stationary rather than walking in any direction.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "qwen3.8",
+      "image": "cam6_src5_person_evt1783.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 24.38,
+      "description": "There is no person visible in this image to describe. The frame shows an outdoor night-vision security scene with a chain-link fence, overgrown vegetation, and a vehicle with its headlights on in the upper right, but it contains no human figures, clothing, or accessories to characterize.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam6_src5_car_evt8.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam2_src1_motorcycle_evt302.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_car_evt51.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam6_src5_car_evt1.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_person_evt184.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam6_src5_motorcycle_evt29.jpg",
+      "camera_id": 6,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_motorcycle_evt113.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam3_src2_motorcycle_evt104.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam3_src2_person_evt4.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam5_src4_car_evt334.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam5_src4_person_evt132.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam5_src4_person_evt398.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_car_evt72.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam5_src4_motorcycle_evt613.jpg",
+      "camera_id": 5,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam5_src4_car_evt404.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam3_src2_car_evt5.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam2_src1_person_evt9.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_motorcycle_evt567.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam2_src1_motorcycle_evt2579.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam3_src2_person_evt12.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam6_src5_person_evt1926.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam1_src0_person_evt919.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam3_src2_car_evt20.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam1_src0_person_evt69.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam1_src0_motorcycle_evt736.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam1_src0_motorcycle_evt2003.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam2_src1_person_evt139.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam4_src3_person_evt36.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "nemotron-3.5-lightning",
+      "image": "cam6_src5_person_evt1783.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": null,
+      "description": null,
+      "rejected": null,
+      "error": "{\"error\":{\"code\":400,\"message\":\"Multimodal data provided, but model does not support multimodal requests.\",\"type\":\"invalid_request_error\"}} (status code: 400)"
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam6_src5_car_evt8.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 152.33,
+      "description": "The vehicle is a white midsize SUV/crossover \u2014 the shape is consistent with a late-2010s to mid-2020s model such as a Toyota RAV4 / Honda CR-V-type \u2014 seen from a rear-three-quarter angle on the curving paved road at the top right of the frame. It is traveling along the road from right toward left / up the curve toward the left side of the image, with no obvious damage or distinctive markings visible at this resolution and its license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam2_src1_motorcycle_evt302.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 64.83,
+      "description": "There is no motorcycle, bicycle, scooter or dirt bike visible in the image at all. The photo shows an indoor workspace / loft office with a man with gray hair sitting at a desk with multiple monitors, a laptop and a keyboard, in front of windows and a wooden railing. No rider, helmet, clothing for riding, passenger or direction of travel can be identified because no two-wheeled vehicle is present in the frame.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_car_evt51.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 64.69,
+      "description": "There is no vehicle visible in the frame at the timestamp shown. The camera is looking out over an empty paved road that curves to the left through a forested area, with dry grass/ground in the foreground and tall trees lining both sides of the road. No car, SUV, truck, van or other road vehicle, and therefore no color, body style, make/model, year, damage/markings, direction of travel or legible license plate text, can be discerned from this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam6_src5_car_evt1.jpg",
+      "camera_id": 6,
+      "label": "car",
+      "latency_s": 79.18,
+      "description": "The vehicle in the upper-left part of the frame on the paved road is heavily pixelated / blurred for privacy and no identifying details can be reliably seen. Because of that obscuration its color, body style, make/model, approximate year range, any damage or distinctive markings, and license plate text are not legible in the image. The blurred shape is positioned on the road that curves to the right in the background, so it appears to be traveling along / down that road, but orientation and direction of travel cannot be confirmed with certainty given the pixelation.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_person_evt184.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 73.47,
+      "description": "There is no person visible in the frame at all. The image shows a sun-dappled grassy verge beside a paved road / driveway with dense forest on the far side, timestamped 2026-07-22 15:51:20 Wed and labeled \u201cIPC Hidden Meadow at Tanks\u201d. Because no individual is present, there is no age range, gender, hair, clothing, accessories, action or direction of movement to describe.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam6_src5_motorcycle_evt29.jpg",
+      "camera_id": 6,
+      "label": "motorcycle",
+      "latency_s": 101.38,
+      "description": "There is no motorcycle, bicycle, scooter, dirt bike or cruiser visible in the frame at 2026-08-18 17:57:48. The camera is looking down a winding paved road bordered by dry grass and trees, with a small chain-link fenced utility enclosure in the foreground on the left; the only human present is a pedestrian on the right side of the road wearing a white top and dark shorts walking to the right / up the road, with no helmet, no vehicle and no passenger.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_motorcycle_evt113.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 74.68,
+      "description": "The vehicle in the background is a bicycle, a standard road / hybrid-type bike with a dark-colored frame that is not identifiable as a specific make. The rider is wearing a white/light helmet, a white/light long-sleeve top and light-colored pants/shorts, and is riding solo with no passenger. The cyclist is on the paved forest road and is traveling to the left side of the frame, moving away from the camera toward the left.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam3_src2_motorcycle_evt104.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 104.19,
+      "description": "The vehicle in the left of the frame is a bicycle, with a reddish / pinkish frame that is not identifiable to make. The rider is wearing a light-colored, likely white, short-sleeve top; no helmet is clearly visible at this distance/resolution and there is no passenger on the bike. The cyclist is on the curved concrete roadway in a wooded area and is traveling along the curve toward the left / out of the frame, moving up/around the bend away from the camera\u2019s viewpoint.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam3_src2_person_evt4.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 134.77,
+      "description": "The person appears to be an adult male, roughly in his 30s-50s, walking on a sun-dappled paved curved driveway bordered by trees. His hair color and length are not visible because he is wearing a bright orange hard hat; he is dressed in a light short-sleeved shirt, dark work-style trousers and dark footwear. He is carrying a large orange-and-white backpack leaf blower on his back and is walking leftward along the road, heading up the gentle incline toward the upper left of the frame, consistent with grounds/maintenance work.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam5_src4_car_evt334.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 73.89,
+      "description": "No vehicle is visible in the frame at 2026-07-21 16:42:01. The image shows an empty concrete driveway curving away into a wooded landscaped area with no car, truck, SUV, van, sedan or coupe present to assess for color, body style, make/model, year range, damage, markings, direction of travel or license plate text. The scene is just the paved path, adjacent planting beds and trees with dappled sunlight on the pavement.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam5_src4_person_evt132.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 105.73,
+      "description": "The figure is a middle-aged adult male, roughly in his 40s-60s, who appears bald with no visible hair. He is wearing a short-sleeved, loose T-shirt in orange/brownish tones, dark knee-length shorts and black slide / sandal-style footwear, with no visible backpack, hat, bag or phone.\n\nHe is walking across the concrete driveway in the foreground, moving leftward across the frame and generally up/ toward the left side of the image, away from the camera\u2019s viewpoint toward the landscaped area and trees in the background.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam5_src4_person_evt398.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 80.73,
+      "description": "The figure is an older adult male, roughly in his 60s\u201370s, seen at a distance on the paved drive. His hair is not visible because he is wearing a white cap/hat; he is in a light-colored short-sleeve shirt and dark shorts and appears to be using two walking poles/canes. He is walking away from the camera up the curving driveway on the left side of the frame, moving into the tree-lined distance. No bag, phone or backpack is clearly discernible and footwear is not resolvable at this range.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_car_evt72.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 67.56,
+      "description": "No vehicle is visible in the frame at all. The camera view from \u201cIPC Hidden Meadow at Tanks\u201d on 2026-07-18 15:27:15 Sat shows an empty, sun-dappled gravel/dirt road curving into a dense coniferous forest with no car, truck, SUV, van or other vehicle present, and therefore no color, body style, make/model, year range, damage/markings, direction of travel or legible license plate can be discerned.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam5_src4_motorcycle_evt613.jpg",
+      "camera_id": 5,
+      "label": "motorcycle",
+      "latency_s": 73.12,
+      "description": "There is no motorcycle, scooter, dirt bike, cruiser, sport bike or bicycle visible in the frame. The timestamped security still shows a paved driveway bordered by trees and garden planting with a woman walking up the drive toward the camera; the image exhibits motion-ghosting/double-exposure artifacts but no vehicle, rider helmet, passenger or direction of travel for a two-wheeled vehicle can be identified. In short, the scene contains a pedestrian on foot, not a motorcycle or bicycle.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam5_src4_car_evt404.jpg",
+      "camera_id": 5,
+      "label": "car",
+      "latency_s": 145.69,
+      "description": "The vehicle visible on the right side of the concrete driveway is a silver / light-gray wagon/SUV body style consistent with a late-1990s to early-2000s Subaru Legacy/Outback-type wagon. It is essentially stationary / parked along the driveway edge with its rear quarter facing the camera and its nose oriented generally up the driveway toward the landscaped slope; no clear direction of travel is in progress. No obvious damage or distinctive markings can be made out and the rear license plate is not legible in the image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam3_src2_car_evt5.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 111.17,
+      "description": "The vehicle is a white four-door sedan consistent with a Ford Fusion from roughly the mid-2010s to early 2020s, captured in a rear-three-quarter view on a curved concrete drive flanked by trees and leaf litter. It is traveling leftward/off-frame down the incline, moving away from the camera, with no obvious damage or distinctive markings visible in the Reolink frame; the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam2_src1_person_evt9.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 108.09,
+      "description": "The person appears to be an older adult male, roughly in his 60s-70s, with short, light-colored/white-gray hair and glasses. He is seated at a cluttered workstation with his back to the camera, facing the several monitors in front of him, and is wearing a light-colored short-sleeve T-shirt; his pants/skirt and footwear are not visible in the frame. No backpack, hat, bag or phone is clearly visible, and he is stationary, focused on working at the computer with his torso oriented toward the center-right of the image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_motorcycle_evt567.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 123.6,
+      "description": "There is no motorcycle, bicycle, scooter or dirt bike visible in this frame at all. The only motor vehicle captured by the IPC Hidden Meadow at Tanks camera on 2026-07-23 18:05:51 Thu is a dark blue/black four-door sedan / hatchback/minivan-type car on the paved road that curves through the treed lot. The car is alone, no riders/helmet/clothing/passenger information is relevant, and it is travelling along the road on the far side of the grassy foreground, roughly moving from right to left in the scene as the road bends into the trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam2_src1_motorcycle_evt2579.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 74.22,
+      "description": "There is no motorcycle, bicycle, scooter or other two-wheeled vehicle visible in the frame at all. The picture is an indoor home/office space with a wooden ceiling, two tall windows on the left wall, a railing, and a desk area with multiple desktop monitors, a laptop, keyboards, a jacket draped over a chair and general clutter. Because no motorcycle or bicycle is present in the image, there is no type, color, make, rider helmet/clothing, passenger or direction of travel to report.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam3_src2_person_evt12.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 158.93,
+      "description": "The woman in the foreground is an older adult female with light blonde hair pulled back into a ponytail. She is wearing a white visor, a dark navy short-sleeve polo-style top, black pants and light-colored/white sneakers, and she appears to be holding a small object in her right hand. She is walking with another older woman in a blue long-sleeve top and gray shorts along the curved concrete driveway that is bordered by trees and leaf litter, moving up/leftward along the path away from the camera.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam6_src5_person_evt1926.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 80.32,
+      "description": "There is no clearly identifiable person visible in this frame. The image shows a dry, brushy hillside with a paved road running across the top, a small metal mesh enclosure with a blue box mounted on it in the foreground, and some trees/forest at the top of the slope. On the far right edge of the road a dark vehicle and indistinct shapes are partially cropped, but no individual\u2019s age, gender, hair, clothing, accessories or direction of movement can be discerned from the low-resolution, angled view.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam1_src0_person_evt919.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 138.66,
+      "description": "The person is an older adult male, likely in his 60s-70s, with short, white/gray wavy hair and glasses. He is seated in an office chair at a cluttered desk in front of two computer monitors and is wearing a light-toned short-sleeved T-shirt and light-toned pants; footwear is not visible. He has a wristwatch on his left wrist and no backpack, hat, bag or phone is clearly visible.\n\nHe appears to be working at the computer, with his right hand raised toward the keyboard/mouse area and something held near his mouth, as if eating or holding a small object. He is seated and mostly stationary, facing left toward the monitors, with his torso and right arm positioned in a seated working posture and no clear directional movement across the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam3_src2_car_evt20.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 125.65,
+      "description": "The vehicle is a white four-door sedan consistent with a Ford Fusion from roughly the mid-2010s to early 2020s, sitting/stationary on a curved concrete driveway edged by trees and dry leaves. It shows no obvious damage or distinctive markings in the frame and the rear license plate is not legible at this resolution; the car is oriented with its rear toward the camera and its nose pointing left/up the driveway, and it appears parked rather than in motion.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam1_src0_person_evt69.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 152.24,
+      "description": "The person is a male-presenting individual who appears to be in his 60s-70s with short, curly white/gray hair and glasses. He is wearing a light-toned short-sleeved T-shirt and light-colored shorts; no footwear is visible in the frame. A wristwatch is visible on his left wrist and no backpack, hat, bag or phone can be seen.\n\nHe is seated in an office chair at a desk with two monitors in front of him and appears to be working on the computer, hands on the keyboard/mouse. He is stationary in the shot, seated and facing left toward the screens with no discernible movement.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam1_src0_motorcycle_evt736.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 64.48,
+      "description": "The frame you posted doesn\u2019t contain a discernible motorcycle, bicycle, scooter or rider at all. The still is a heavily corrupted / glitched black-and-white image timestamped 2026-07-22 21:35:34 that shows an indoor workspace \u2013 a desk with a monitor, cables, a disposable cup and a spray can on it, with severe pixelation / data loss on the right side of the picture. Because of the corruption no vehicle type, colour, make, rider helmet / clothing, passenger or direction of travel can be identified.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam1_src0_motorcycle_evt2003.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 97.24,
+      "description": "There is no clearly identifiable motorcycle or bicycle in the frame you\u2019ve shared. What is visible is a home-office / workstation setup with three desktop monitors, a keyboard in the foreground and a desk with equipment behind it, and the right-hand side of the image is heavily corrupted / pixelated/glitched so that any person or vehicle that might be there is completely obscured and not recognisable.\n\nBecause of that data corruption the type, colour, make/model, rider\u2019s helmet colour and clothing, presence of a passenger, and direction of travel cannot be determined from this image \u2013 no motorcycle, scooter, dirt bike, cruiser or bicycle can be reliably seen or described.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam2_src1_person_evt139.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 58.28,
+      "description": "There is no identifiable person visible in the frame at all. The black-and-white / night-vision still from 2026-07-22 00:55:01 shows an empty workspace with multiple desktop monitors, a keyboard, a laptop and clutter on a desk in front of windows and a railing, but no human figure, face, hair, clothing, accessories or movement can be discerned. Because no person is present in the image, an age range, gender, appearance, clothing, accessories or direction of movement cannot be described.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam4_src3_person_evt36.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 81.66,
+      "description": "There is no clearly identifiable person visible in the still from the IPC Hidden Meadow at Tanks camera.\n\nThe frame shows an empty, sun-lit grassy area in front of a paved/dirt road bordered by tall coniferous trees, with dappled shadows and a bright over-exposure in the foreground. No figure can be reliably discerned for age range / gender, hair, clothing, accessories or direction of movement, so those details cannot be described from this image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "muse-glimmer:30b",
+      "image": "cam6_src5_person_evt1783.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 94.65,
+      "description": "There is no clearly identifiable person visible in this night-vision security still. The frame shows a fenced enclosure / pen in vegetation at night, with overgrown foliage, a dark curving path and a vehicle with its headlights on in the upper right background. No human figure, face, hair, clothing, accessories or discernible movement of a person can be made out in the image at 2026-07-23 05:33:31.",
+      "rejected": false,
+      "error": null
+    }
+  ],
+  "summary": {
+    "gemma4:12b": {
+      "n_ok": 29,
+      "n_errors": 0,
+      "mean_latency_s": 53.36,
+      "p95_latency_s": 76.32,
+      "reject_rate": 0.21,
+      "realtime_flag": true
+    },
+    "qwen3.8": {
+      "n_ok": 29,
+      "n_errors": 0,
+      "mean_latency_s": 37.25,
+      "p95_latency_s": 58.45,
+      "reject_rate": 0.41,
+      "realtime_flag": true
+    },
+    "nemotron-3.5-lightning": {
+      "n_ok": 0,
+      "n_errors": 29,
+      "mean_latency_s": null,
+      "p95_latency_s": null,
+      "reject_rate": null,
+      "realtime_flag": false
+    },
+    "muse-glimmer:30b": {
+      "n_ok": 29,
+      "n_errors": 0,
+      "mean_latency_s": 98.81,
+      "p95_latency_s": 152.24,
+      "reject_rate": 0.45,
+      "realtime_flag": true
+    }
+  }
+}
