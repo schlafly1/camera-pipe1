@@ -16,6 +16,20 @@ the VLM (general-purpose AI box, more memory to run a large model). Spark's
 own DeepStream container in this section is for development/testing before
 things move to Thor, not a second production deployment target.
 
+> **TODO before moving to Thor — read this first.** Everything from
+> "Prerequisites (Spark)" through "Adding a camera" below (`docker`,
+> `cam_multi.yml`, `Dockerfile`) is **Spark-only**. `git clone`/`git pull`
+> on Thor gets you the same repo, but there is no Jetson DeepStream
+> container image to build — `docker compose -f cam_multi.yml build` will
+> not work there. Skip straight to "Native Thor runbook" below instead.
+> That section's own step 0 has not been run against real Thor hardware
+> yet — the install paths, the `pyservicemaker` wheel location, and
+> whether `--system-site-packages` actually exposes JetPack's `gi` module
+> are all best-guesses from reading the Dockerfile, not confirmed. First
+> thing to do on Thor: work through step 0 command-by-command, fix any
+> path that doesn't match what's actually installed, and update this doc
+> with what was actually true.
+
 ## Architecture
 
 ```
@@ -48,6 +62,8 @@ ollama pull nomic-embed-text
 
 ## Clone on Spark (everything you need is on GitHub)
 
+*(Spark/Docker path — on Thor, use "Native Thor runbook" below instead.)*
+
 ```bash
 git clone -b multi-stream https://github.com/schlafly1/camera-pipe1.git
 cd camera-pipe1
@@ -64,6 +80,8 @@ your real **`.env`** (camera URLs and secrets) if you already have one on Thor.
 | | `setup.txt`, `thor-spark-plan.txt` (local planning notes only) |
 
 ## Full setup on Spark
+
+*(Spark/Docker path — on Thor, use "Native Thor runbook" below instead.)*
 
 ```bash
 # 1. Clone

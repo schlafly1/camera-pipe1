@@ -133,15 +133,14 @@ migration target.
 ## Caveats
 
 - Thor is now confirmed running **JetPack 7.2 with DeepStream 9.1 natively**
-  (superseding the JP7.2-ships-DS8.0 note that was here before). Still verify
-  with `deepstream-app --version` inside the container before assuming
-  parity with Spark's image — Spark's `Dockerfile` pins a
-  `9.1-triton-sbsa-dgx-spark` base specifically because the generic
-  `9.1-triton-multiarch` image doesn't work there (dangling symlinks for
-  Jetson multimedia libs it expects the host to mount). Thor is a real
-  Jetson device, not the Spark's SBSA-DGX setup, so it likely needs a
-  different base image tag — check the NGC catalog for the correct
-  Thor/JetPack 7.2 DeepStream 9.1 image rather than reusing the Spark one.
+  — there is no Docker image for it (NVIDIA doesn't publish one for Jetson;
+  Spark's `Dockerfile` pins a `9.1-triton-sbsa-dgx-spark` base that's
+  specific to Spark's SBSA-DGX setup and doesn't apply to a real Jetson
+  device like Thor). So the plan is native install, not a container — see
+  `SPARK_DEV.md` → "Native Thor runbook". **TODO on first real Thor
+  session**: run `deepstream-app --version` on the host (not in a
+  container) to confirm the native 9.1 install actually matches what
+  `pipeline_multi.py` needs, before assuming parity with Spark's image.
 
 - MIG is marked **technology preview** in JP7.2. Profile names and memory splits
   for Thor are not yet fully documented. Check the actual device before designing
