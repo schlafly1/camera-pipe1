@@ -60,6 +60,20 @@ STREET_QUEUE_MAX = int(os.environ.get("STREET_QUEUE_MAX", str(VLM_QUEUE_MAX * 8)
 # long as street-cam volume stays low (a few detections/hour). Lower this back
 # toward the old 30s default only if running the VLM locally and low latency.
 MAX_EVENT_AGE_S = float(os.environ.get("MAX_EVENT_AGE_S", "300.0"))
+# The per-camera JPEG ring buffer (SNAPSHOT_RING_FILES below) only covers a
+# few seconds-to-tens-of-seconds of real time, far less than MAX_EVENT_AGE_S.
+# Once a backlogged worker is this far past the original detection, the
+# in-window frame is already rotated out and get_jpeg_after's fallback grabs
+# whatever the camera sees "now" — a different moment, not a late copy of the
+# same one. Sending that to the VLM almost always burns a full round trip on
+# a guaranteed reject (measured: 522/522 VLM calls used a fallback frame,
+# 96% rejected). Skip the VLM call outright past this gap instead.
+VLM_STALE_FRAME_MAX_GAP_S = float(os.environ.get("VLM_STALE_FRAME_MAX_GAP_S", "20.0"))
+# Per-camera snapshot ring buffer depth (multifilesink max-files). At 200
+# this covered as little as ~8s of history for a busy camera (24fps) — far
+# short of realistic VLM worker backlog. JPEGs are cheap (~50-150KB each),
+# so this is a storage/nothing tradeoff, not a compute one.
+SNAPSHOT_RING_FILES = int(os.environ.get("SNAPSHOT_RING_FILES", "900"))
 FRAME_W         = int(os.environ.get("FRAME_W", "1280"))
 FRAME_H         = int(os.environ.get("FRAME_H", "720"))
 ENABLE_DISPLAY  = (
@@ -70,9 +84,9 @@ LIVE_STREAM     = os.environ.get("LIVE_STREAM", "0") == "1"
 JPEG_GLOB       = "/tmp/frame_*.jpg"
 TILER_W         = int(os.environ.get("TILER_W", "1280"))
 TILER_H         = int(os.environ.get("TILER_H", "720"))
-SNAPSHOT_DIR    = "/workspace/snapshots"
-STATS_DIR       = "/workspace/stats"
-LOG_DIR         = os.environ.get("LOG_DIR", "/workspace/logs")
+SNAPSHOT_DIR    = "snapshots"
+STATS_DIR       = "stats"
+LOG_DIR         = os.environ.get("LOG_DIR", "logs")
 STATS_HEARTBEAT_S = float(os.environ.get("STATS_HEARTBEAT_S", "10.0"))
 RECONNECT_INTERVAL = 5
 RESTART_DELAY      = 10
@@ -190,7 +204,11 @@ class StatsTracker:
       stale_skip  skipped un-processed: waited > MAX_EVENT_AGE_S in the queue,
                   so its frame is gone (worker backlog) — no VLM call made
       no_frame    worker found no usable JPEG for the camera
-      stale_frame worker used an old JPEG (counted, not a stop — save may follow)
+      stale_frame_skip frame is >VLM_STALE_FRAME_MAX_GAP_S from the detection
+                  instant (fallback shows "now", not the moment detected) —
+                  skipped, no VLM call made
+      stale_frame worker used a stale JPEG anyway, within gap tolerance
+                  (counted, not a stop — save may follow)
       vlm_reject  VLM said the object isn't in the frame (detector false positive)
       errors      worker exception (Ollama/ChromaDB/etc.)
       saves       embedded + stored in ChromaDB with a snapshot
@@ -199,7 +217,8 @@ class StatsTracker:
     _LATENCY_WINDOW = 20
     _COUNTER_KEYS = (
         "detections", "low_conf", "dedup", "throttled", "queued", "drops",
-        "stale_skip", "no_frame", "stale_frame", "vlm_reject", "errors", "saves",
+        "stale_skip", "no_frame", "stale_frame_skip", "stale_frame",
+        "vlm_reject", "errors", "saves",
     )
 
     def __init__(self, camera_id, path, cam_type="street"):
@@ -425,7 +444,14 @@ class ObjectDetector(BatchMetadataOperator):
 
 
 def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
-    """Return (jpeg_bytes, is_stale) for the given camera; (None, False) if none.
+    """Return (jpeg_bytes, is_stale, gap_s) for the given camera;
+    (None, False, None) if none.
+
+    gap_s is how far the chosen file's mtime sits from after_time (the
+    detection instant) — 0 for an in-window match, and for a stale fallback
+    it's the caller's signal for whether the frame is close enough that the
+    detected object might still plausibly be in it, vs. so old/late that the
+    scene has certainly moved on (see VLM_STALE_FRAME_MAX_GAP_S).
 
     Uses a time window (before and after detection time) to account for
     the snapshot being written slightly before/after the probe fires.
@@ -435,7 +461,10 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
 
     If no file in the "fresh" window for the camera, we fall back to the
     most recent file that exists for that camera (stale frame is better
-    than wrong camera or nothing).
+    than wrong camera or nothing) — but note "stale" here usually means
+    *late* (mtime near "now", far past after_time) because a backlogged
+    worker outruns the snapshot ring buffer, not that the file is
+    chronologically old.
 
     The chosen file is copied to a temp location immediately to avoid
     race with multifilesink rotation.
@@ -484,7 +513,9 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
         time.sleep(0.1)
 
     if not best_path:
-        return None, False
+        return None, False, None
+
+    gap_s = abs(best_mtime - after_time)
 
     # Immediately copy to a safe temp file so multifilesink can't delete it
     # while we (or the caller) are reading / using the bytes.
@@ -496,21 +527,23 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
             data = fh.read()
         os.unlink(safe_path)  # clean temp
         if len(data) < 1000:
-            return None, False
+            return None, False, None
         if best_is_stale and camera_id is not None:
-            age = time.time() - best_mtime
-            log.info(f"[VLM] Using stale frame for cam{camera_id} (age ~{age:.1f}s)")
-        return data, best_is_stale
+            log.info(
+                f"[VLM] Stale frame for cam{camera_id}: chosen file is "
+                f"{gap_s:.1f}s from the detection instant"
+            )
+        return data, best_is_stale, gap_s
     except Exception:
         # Fallback: try direct read (may race)
         try:
             with open(best_path, "rb") as fh:
                 data = fh.read()
             if len(data) > 1000:
-                return data, best_is_stale
+                return data, best_is_stale, gap_s
         except OSError:
             pass
-    return None, False
+    return None, False, None
 
 
 def vlm_worker(event_queue, stats_registry):
@@ -544,7 +577,7 @@ def vlm_worker(event_queue, stats_registry):
             continue
 
         try:
-            jpeg_bytes, jpeg_is_stale = get_jpeg_after(
+            jpeg_bytes, jpeg_is_stale, jpeg_gap_s = get_jpeg_after(
                 det["queued_at"], camera_id=camera_id
             )
             if not jpeg_bytes:
@@ -553,6 +586,20 @@ def vlm_worker(event_queue, stats_registry):
                     f"skipping cam{camera_id} evt={det['event_id']}"
                 )
                 stats.bump("no_frame")
+                stats.write(queue_depth=event_queue.qsize())
+                continue
+            if jpeg_is_stale and jpeg_gap_s > VLM_STALE_FRAME_MAX_GAP_S:
+                # The ring buffer has already rotated past the detection
+                # instant; the fallback frame shows "now", a different scene,
+                # not a late copy of the same one. Calling the VLM on it is a
+                # guaranteed-reject round trip that only deepens the backlog
+                # for events that could still make their window.
+                log.info(
+                    f"[VLM] cam{camera_id} evt={det['event_id']} SKIP "
+                    f"stale frame (gap {jpeg_gap_s:.0f}s > "
+                    f"{VLM_STALE_FRAME_MAX_GAP_S:.0f}s, no VLM call)"
+                )
+                stats.bump("stale_frame_skip")
                 stats.write(queue_depth=event_queue.qsize())
                 continue
             if jpeg_is_stale:
@@ -697,7 +744,7 @@ def build_pipeline(detector, streams):
         pipeline.add("nvjpegenc", enc, {"quality": 82})
         pipeline.add("multifilesink", fsink, {
             "location":  f"/tmp/frame_cam{cam}_%05d.jpg",
-            "max-files": 200,
+            "max-files": SNAPSHOT_RING_FILES,
             "async":     0,
             "sync":      0,
         })
