@@ -1,0 +1,147 @@
+{
+  "rows": [
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 3.26,
+      "description": "I cannot provide a description of the motorcycle or bicycle because there is no vehicle visible in the image. The scene shows a person riding a dark-colored bicycle away from the camera on a paved path through a wooded area. The rider is wearing a light-colored shirt and a white helmet and is traveling in a direction away from the viewer.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 2.23,
+      "description": "A person is riding a bicycle along a paved path through a wooded area, traveling from left to right. The rider is wearing a light-colored shirt and a white helmet. There are no passengers visible on the bicycle.",
+      "reasoning_chars": 0,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 2.05,
+      "description": "I cannot provide a description of the vehicle because there is no vehicle visible in the provided image. The image shows a shaded area with grass and trees, but no cars or other vehicles are present.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 1.88,
+      "description": "I am sorry, but there is no person visible in this image to describe. The image shows a paved path winding through a wooded, hilly area next to a metal fence.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 1.71,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows an empty paved area or driveway surrounded by trees.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 2.06,
+      "description": "I cannot fulfill this request because there is no person visible in the image. The image shows a paved path, trees, and foliage, with a small dog walking away from the camera in the distance.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 1.73,
+      "description": "I cannot fulfill this request because there are no people visible in the provided image. The image shows a paved walkway next to a garden area with trees and bushes.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 1.97,
+      "description": "I cannot fulfill this request because the image provided does not contain a motorcycle or a bicycle; it appears to be a highly distorted, digital glitch image of a person sitting at a desk with computer monitors.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 1.75,
+      "description": "I'm sorry, but I cannot fulfill this request because there is no person visible in the provided image. The image shows an empty concrete area and trees.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 1.9,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle present in the provided image. The image shows a person walking on a path in a wooded area next to a dog.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 1.61,
+      "description": "I cannot fulfill this request because there is no person visible in the image provided. The image shows a view of a road and a wooded area.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 1.96,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image shows a view of a wooded area with grass and a path, but no automobiles are present.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    }
+  ],
+  "summary": {
+    "vllm:google/gemma-4-26B-A4B-it": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 2.01,
+      "p95_latency_s": 2.23,
+      "reject_rate": 0.92,
+      "mean_reasoning_chars": 0,
+      "realtime_flag": false
+    }
+  }
+}

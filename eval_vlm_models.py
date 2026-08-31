@@ -1,7 +1,7 @@
 """eval_vlm_models.py — offline side-by-side comparison of VLM_MODEL candidates.
 
-Runs each candidate Ollama model over a stratified sample of real detection
-crops already captured in ./snapshots/, using the exact same prompts and
+Runs each candidate model over a stratified sample of real detection crops
+already captured in ./snapshots/, using the exact same prompts and
 false-positive rejection check as the production worker (pipeline_multi.py's
 VLM_PROMPTS / _vlm_says_absent — duplicated here so this script has no
 dependency on pyservicemaker and can run outside the DeepStream container).
@@ -9,11 +9,25 @@ dependency on pyservicemaker and can run outside the DeepStream container).
     python3 eval_vlm_models.py [--n-per-label N] [--models m1,m2,...]
                                 [--max-images N] [--output path.json]
 
-Needs the `ollama` package and a reachable Ollama server (OLLAMA_HOST env var,
-same as pipeline_multi.py). It's not installed on the host by default (only
-inside the DeepStream container, via Dockerfile) — on the host, use:
+Two backends, picked per-model by a prefix on the --models entry:
+  - Ollama (default, no prefix): needs the `ollama` package and a reachable
+    Ollama server (OLLAMA_HOST env var, same as pipeline_multi.py).
+  - vLLM / any OpenAI-compatible server: prefix the model id with "vllm:",
+    e.g. "vllm:google/gemma-4-26B-A4B-it". Uses --vllm-url (default from
+    VLLM_URL env var) and plain `requests` — no `openai` package needed.
+    Get the exact model id vLLM expects from `curl <url>/v1/models`.
 
-    python3 -m venv .venv && .venv/bin/pip install ollama
+Example comparing the current on-pipeline Ollama model against a candidate
+vLLM server on Spark:
+
+    .venv/bin/python eval_vlm_models.py \\
+        --models gemma4:12b,vllm:google/gemma-4-26B-A4B-it \\
+        --vllm-url http://gx10-2ea8:8000
+
+Not installed on the host by default (only inside the DeepStream container,
+via Dockerfile) — on the host, use:
+
+    python3 -m venv .venv && .venv/bin/pip install ollama requests
     .venv/bin/python eval_vlm_models.py ...
 
 Quality is judged by eye: descriptions are printed grouped by image so you
@@ -30,6 +44,7 @@ import re
 import time
 
 import ollama
+import requests
 
 SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshots")
 FILENAME_RE = re.compile(r"^cam(\d+)_src\d+_([a-zA-Z]+)_evt\d+\.jpg$")
@@ -118,18 +133,93 @@ def sample_images(n_per_label, max_images, seed):
     return sample
 
 
-def run_model_on_image(model, image):
+VLLM_PREFIX = "vllm:"
+
+def _final_answer(text):
+    """Drop Gemma 4 thinking preamble when the reasoning parser is off."""
+    import re
+    t = (text or "").strip()
+    if not t:
+        return t
+    if "<channel|>" in t:
+        t = t.split("<channel|>")[-1].strip()
+    low = t.lower()
+    if low.startswith("thought") or "<|channel>thought" in low[:80]:
+        quoted = list(re.finditer(r"\"([^\"]{20,})\"", t))
+        if quoted:
+            after = t[quoted[-1].end():].strip().strip("\"")
+            return after if len(after) >= 20 else quoted[-1].group(1)
+        paras = [x.strip() for x in re.split(r"\n\s*\n", t) if x.strip()]
+        for para in reversed(paras):
+            if not para.lstrip().startswith("*") and len(para) >= 20:
+                return para
+    return t
+
+
+
+def _msg_field(msg, name, default=""):
+    """ollama Message supports both dict- and attribute-style access
+    depending on client version; try both rather than assuming one."""
+    try:
+        val = msg[name]
+    except (KeyError, TypeError):
+        val = getattr(msg, name, default)
+    return val or default
+
+
+def _run_ollama(model, prompt, jpeg_b64, think=None):
+    resp = ollama.chat(
+        model=model,
+        messages=[{"role": "user", "content": prompt, "images": [jpeg_b64]}],
+        think=think,
+    )
+    msg = resp["message"]
+    content = _msg_field(msg, "content").strip()
+    thinking = _msg_field(msg, "thinking")
+    return content, thinking
+
+
+def _run_vllm(model, prompt, jpeg_b64, vllm_url, timeout=180, max_tokens=300, enable_thinking=False):
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{jpeg_b64}"}},
+            ],
+        }],
+        "max_tokens": max_tokens,
+    }
+    if enable_thinking:
+        payload["chat_template_kwargs"] = {"enable_thinking": True}
+    r = requests.post(f"{vllm_url}/v1/chat/completions", json=payload, timeout=timeout)
+    r.raise_for_status()
+    msg = r.json()["choices"][0]["message"]
+    raw = (msg.get("content") or "").strip()
+    reasoning = (msg.get("reasoning") or msg.get("reasoning_content") or "").strip()
+    if not reasoning and raw.lower().startswith("thought"):
+        reasoning = raw
+    content = _final_answer(raw)
+    return content, reasoning
+
+
+def run_model_on_image(model, image, vllm_url, enable_thinking=False, max_tokens=300,
+                        ollama_think=None):
     with open(image["path"], "rb") as f:
         jpeg_b64 = base64.b64encode(f.read()).decode()
     prompt = VLM_PROMPTS.get(image["class_id"], "Describe what you see in one sentence.")
     t0 = time.time()
     try:
-        resp = ollama.chat(
-            model=model,
-            messages=[{"role": "user", "content": prompt, "images": [jpeg_b64]}],
-        )
+        if model.startswith(VLLM_PREFIX):
+            description, reasoning = _run_vllm(
+                model[len(VLLM_PREFIX):], prompt, jpeg_b64, vllm_url,
+                timeout=180, max_tokens=max_tokens, enable_thinking=enable_thinking,
+            )
+        else:
+            description, reasoning = _run_ollama(model, prompt, jpeg_b64, think=ollama_think)
         latency_s = time.time() - t0
-        description = resp["message"]["content"].strip()
         return {
             "model": model,
             "image": image["name"],
@@ -137,6 +227,7 @@ def run_model_on_image(model, image):
             "label": image["label"],
             "latency_s": round(latency_s, 2),
             "description": description,
+            "reasoning_chars": len(reasoning) if reasoning else 0,
             "rejected": _vlm_says_absent(description, image["class_id"]),
             "error": None,
         }
@@ -163,6 +254,7 @@ def summarize(rows):
         errors = len(model_rows) - len(ok)
         latencies = sorted(r["latency_s"] for r in ok)
         rejects = sum(1 for r in ok if r["rejected"])
+        reasoning_chars = [r.get("reasoning_chars", 0) for r in ok]
         n = len(latencies)
         p95 = latencies[int(0.95 * (n - 1))] if n else None
         mean = round(sum(latencies) / n, 2) if n else None
@@ -172,6 +264,7 @@ def summarize(rows):
             "mean_latency_s": mean,
             "p95_latency_s": p95,
             "reject_rate": round(rejects / n, 2) if n else None,
+            "mean_reasoning_chars": round(sum(reasoning_chars) / n) if n else None,
             "realtime_flag": bool(p95 and p95 > REALTIME_WARN_S),
         }
     return summary
@@ -187,11 +280,51 @@ def main():
                      help=f"Comma-separated model list (default: {','.join(DEFAULT_MODELS)}).")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--output", type=str, default="eval_vlm_results.json")
+    ap.add_argument("--enable-thinking", action="store_true",
+                    help="vLLM only: set chat_template_kwargs.enable_thinking.")
+    ap.add_argument("--max-tokens", type=int, default=300,
+                    help="vLLM max_tokens (raise this if thinking eats the budget).")
+    ap.add_argument("--ollama-think", type=str, default="default",
+                    choices=["default", "true", "false", "low", "medium", "high"],
+                    help="Ollama-only: think= passed to ollama.chat() for "
+                         "thinking-capable models. 'default' omits the param "
+                         "(whatever Ollama does when unset).")
+    ap.add_argument("--vllm-url", type=str,
+                     default=os.environ.get("VLLM_URL", "http://gx10-2ea8:8000"),
+                     help="Base URL for vllm: -prefixed models (OpenAI-compatible server).")
+    ap.add_argument("--images", type=str, default=None,
+                     help="Comma-separated snapshot filenames (basenames under "
+                          "./snapshots/) to run instead of sampling — for "
+                          "re-testing a specific known set (e.g. prior "
+                          "disagreements) under new settings.")
     args = ap.parse_args()
 
     models = args.models.split(",") if args.models else list(DEFAULT_MODELS)
+    ollama_think = {"default": None, "true": True, "false": False}.get(
+        args.ollama_think, args.ollama_think  # low/medium/high pass through as-is
+    )
 
-    images = sample_images(args.n_per_label, args.max_images, args.seed)
+    if args.images:
+        names = [n.strip() for n in args.images.split(",") if n.strip()]
+        images = []
+        for name in names:
+            m = FILENAME_RE.match(name)
+            if not m:
+                print(f"[eval] Skipping {name!r}: doesn't match snapshot filename pattern")
+                continue
+            cam_id, label = int(m.group(1)), m.group(2)
+            if label not in LABEL_TO_CLASS_ID:
+                print(f"[eval] Skipping {name!r}: unknown label {label!r}")
+                continue
+            images.append({
+                "path": os.path.join(SNAPSHOT_DIR, name),
+                "name": name,
+                "camera_id": cam_id,
+                "label": label,
+                "class_id": LABEL_TO_CLASS_ID[label],
+            })
+    else:
+        images = sample_images(args.n_per_label, args.max_images, args.seed)
     if not images:
         print(f"[eval] No labeled snapshots found under {SNAPSHOT_DIR}")
         return
@@ -207,7 +340,8 @@ def main():
     for model in models:
         print(f"\n--- {model} ---")
         for image in images:
-            row = run_model_on_image(model, image)
+            row = run_model_on_image(model, image, args.vllm_url, args.enable_thinking,
+                                      args.max_tokens, ollama_think=ollama_think)
             rows.append(row)
             tag = "ERROR" if row["error"] else ("REJECT" if row["rejected"] else "ok")
             desc = row["error"] or row["description"]
@@ -227,7 +361,8 @@ def main():
         flag = "  <-- may not keep up in real time" if s["realtime_flag"] else ""
         print(f"{model:24s} ok={s['n_ok']:3d} err={s['n_errors']:2d} "
               f"mean={s['mean_latency_s']}s p95={s['p95_latency_s']}s "
-              f"reject_rate={s['reject_rate']}{flag}")
+              f"reject_rate={s['reject_rate']} "
+              f"mean_reasoning_chars={s['mean_reasoning_chars']}{flag}")
 
     with open(args.output, "w") as f:
         json.dump({"rows": rows, "summary": summary}, f, indent=2)

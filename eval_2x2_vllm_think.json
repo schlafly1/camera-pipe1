@@ -1,0 +1,147 @@
+{
+  "rows": [
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 21.42,
+      "description": "Final Polish:\nA person wearing a white helmet and a light-colored shirt is riding a dark-colored bicycle along a paved path. The rider is traveling alone, moving away from the camera towards the trees on the right.A person wearing a white helmet and a light-colored shirt is riding a dark-colored bicycle along a paved path. The rider is traveling alone, moving away from the camera towards the trees on the right.",
+      "reasoning_chars": 2045,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 12.98,
+      "description": "Refining the description:\nA person wearing a white helmet and a light-colored shirt is riding a bicycle from right to left along a path. The bicycle's make and color are not clearly identifiable, and there is no passenger.A person wearing a white helmet and a light-colored shirt is riding a bicycle from right to left along a path. The bicycle's make and color are not clearly identifiable, and there is no passenger.",
+      "reasoning_chars": 1222,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 12.32,
+      "description": ".\n    *   The image is very bright/overexposed in some areas and dark in others.\n    *   I've scanned the entire image multiple times. There is absolutely no vehicle present.\n\n2.  **Formulate the response:**\n    *   Since there is no vehicle, I must state that clearly. I cannot fulfill the specific requirements (color, body style, etc.) because they don't apply to a non-existent object.\n\n3.  **Final check:**\n    *   Is there a tiny car in the distance? No.\n    *   Is there a vehicle hidden in the shadows? No.\n    *   Is there a vehicle reflected somewhere? No.\n    *   Conclusion: No vehicle is present in the image.There is no vehicle visible in this image.",
+      "reasoning_chars": 1062,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 7.2,
+      "description": "Since I cannot fulfill the request because the subject (a person) is not present, I must state that.I cannot fulfill this request because there is no person visible in the image.",
+      "reasoning_chars": 643,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 27.94,
+      "description": "Describe this motorcycle or bicycle...\" If one isn't there, the only correct response is to point out its absence.)*\n\n6.  **Final Output Generation:**\n    There is no motorcycle or bicycle visible in this image. The image depicts a paved driveway surrounded by trees with a single person standing on the pavement.There is no motorcycle or bicycle visible in this image. The image depicts a paved driveway surrounded by trees with a person standing on the pavement.",
+      "reasoning_chars": 2650,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 8.83,
+      "description": "3.  **Formulate the response:**\n    *   State clearly that there is no person visible in the image.\n    *   Mention what *is* visible instead (a small dark animal, likely a dog, on a paved path).There are no people visible in this image. A small, dark animal, likely a dog, is seen walking away from the camera on a paved path.",
+      "reasoning_chars": 772,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 6.49,
+      "description": "1.  **Scan the image for a person:** I'm looking at the image. It's a picture of a concrete path winding through some trees and plants.\n2.  **Look for a person:** I see a path, trees, bushes, a timestamp, and \"IPC\" text. I do *not* see any people in this image.\n3.  **Formulate the response:** Since there is no person in the image, I cannot fulfill the request to describe one. I must state that no person is present.I cannot fulfill this request because there is no person visible in the provided image.",
+      "reasoning_chars": 591,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 12.77,
+      "description": ".\n    *   Since there is no motorcycle or bicycle in the image, I must state that.\n\n3.  **Formulate the response:**\n    *   Directly state that no motorcycle or bicycle is present in the image.\n    *   (Self-correction: The image is so corrupted it's hard to see anything clearly, but there is definitely no vehicle visible.)\n\nWait, let me look closer. Is there a tiny toy bike? No. Is the person sitting on a bike? No, it's a chair.\nThe image is a screenshot of a computer screen showing a video call/desktop, heavily glitched.\n\nResult: The requested object is not in the image.I cannot fulfill this request because there is no motorcycle or bicycle present in the provided image.",
+      "reasoning_chars": 1253,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 41.68,
+      "description": "This seems like a good description.\n\nWait, let me look at the bottom right again.\nThere is a person standing/walking near the bushes.\nDark shirt, dark pants.\nMoving left.\n\nLet's try to fulfill all constraints.\n- Age/Gender: adult male (approximate).\n- Hair: not visible.\n- Clothing: dark shirt, dark pants.\n- Accessories: none.\n- Doing: walking.\n- Direction: left.\n\nFinal check of the person in the image.\nLocation: bottom right, edge of the concrete.\nClothing: Dark top, dark bottoms.\nMovement: Walking left.\nGender/Age: Hard to be certain, but adult male is a reasonable guess for an \"approximate\".\nHair: Not visible.\n\nSentence 1: An adult male is walking towards the left along the edge of the concrete path.\nSentence 2: He is wearing a dark shirt and dark pants, with no visible accessories like a hat or bag.",
+      "reasoning_chars": 3924,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 13.98,
+      "description": "and \"AMCREST\" at the bottom.\n- There is definitely no motorcycle or bicycle.\n\nThe user is asking to describe a motorcycle or bicycle, but there isn't one.\nI should state that there is no motorcycle or bicycle in the image.\n\nHowever, I must follow the prompt's constraints if possible. If I can't find it, I should say it's not there.\nLet me look again. Is that a bike in the distance? No, it looks like a person walking a dog.\nThe person is wearing a light-colored (possibly blue/grey) shirt and dark pants.\nThe dog is white/light-colored.\n\nMaybe the user made a mistake or is testing me.\nI will state that there is no motorcycle or bicycle visible in the image.I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows a person walking a dog on a path through a wooded area.",
+      "reasoning_chars": 1267,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 7.11,
+      "description": "1.  **Scan the image for a person:** I'm looking at the image provided. It's a wide shot of a road/path through a wooded area.\n2.  **Examine details:** There is no person visible in this image. It shows a sunlit path or road bordered by trees and grass. There's a timestamp at the top right and some text at the bottom.\n3.  **Conclusion:** Since there is no person in the image, I cannot fulfill the request to describe a person. I must inform the user that no person is visible.I cannot fulfill this request because there is no person visible in the provided image.",
+      "reasoning_chars": 672,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 13.72,
+      "description": "4.  **Formulate the response:** State clearly that no vehicle is visible in the provided image.I cannot fulfill this request because there is no vehicle visible in the provided image.",
+      "reasoning_chars": 1177,
+      "rejected": true,
+      "error": null
+    }
+  ],
+  "summary": {
+    "vllm:google/gemma-4-26B-A4B-it": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 15.54,
+      "p95_latency_s": 27.94,
+      "reject_rate": 0.75,
+      "mean_reasoning_chars": 1440,
+      "realtime_flag": true
+    }
+  }
+}

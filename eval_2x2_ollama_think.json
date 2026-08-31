@@ -1,0 +1,147 @@
+{
+  "rows": [
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 36.36,
+      "description": "A solo rider on a dark-colored bicycle is traveling toward the right side of the frame. The rider is wearing a light-colored helmet along with a white shirt and dark shorts.",
+      "reasoning_chars": 3119,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 44.58,
+      "description": "A dark-colored motorcycle is traveling from right to left across the frame with no passenger. The rider is wearing a white helmet and a light-colored shirt.",
+      "reasoning_chars": 2938,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 41.81,
+      "description": "No vehicle is visible in this image.",
+      "reasoning_chars": 1911,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 33.23,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image.",
+      "reasoning_chars": 2038,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 37.15,
+      "description": "I cannot provide a description for a motorcycle or bicycle because there is no motorcycle or bicycle visible in this image. There is a person walking on the left side of the paved area, but they are not on a bike.",
+      "reasoning_chars": 1350,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 48.19,
+      "description": "This adult is walking away from the camera toward the trees along a paved path. They are wearing a dark-colored jacket or long-sleeved shirt with dark pants and dark footwear. Due to the distance, specific details like their hair color, gender, and the presence of accessories are not clearly visible.",
+      "reasoning_chars": 3815,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 53.71,
+      "description": "In the upper right area of the image, there is an adult with dark, medium-length hair. They are wearing a light-colored top and dark pants with no visible accessories, and they appear to be standing still or moving slowly within the garden.",
+      "reasoning_chars": 3363,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 37.31,
+      "description": "This is a motorcycle that appears to be traveling toward the viewer. The rider is wearing a striped shirt and a dark helmet, and no passenger is visible. Due to the heavy digital distortion, the specific make and color of the bike are not clearly recognizable.",
+      "reasoning_chars": 2793,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 94.25,
+      "description": "A person wearing dark-colored clothing is standing on the far right side of the paved area near the tree line. Due to their distance from the camera, specific details such as their age, hair color, and accessories are not discernible. They appear to be standing still or moving very slowly towards the left.",
+      "reasoning_chars": 6954,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 45.28,
+      "description": "A white dirt bike is being ridden solo from right to left across the scene. The rider is wearing a light-colored helmet and a white jersey.",
+      "reasoning_chars": 3702,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 25.06,
+      "description": "An adult with dark hair is walking toward the left side of the frame. They are wearing a dark shirt and dark pants, and no accessories are visible.",
+      "reasoning_chars": 1679,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 25.21,
+      "description": "A white pickup truck is moving from left to right along a dirt path through a wooded area. No specific make, model, or license plate information is visible due to the distance.",
+      "reasoning_chars": 916,
+      "rejected": false,
+      "error": null
+    }
+  ],
+  "summary": {
+    "gemma4:12b": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 43.51,
+      "p95_latency_s": 53.71,
+      "reject_rate": 0.25,
+      "mean_reasoning_chars": 2882,
+      "realtime_flag": true
+    }
+  }
+}

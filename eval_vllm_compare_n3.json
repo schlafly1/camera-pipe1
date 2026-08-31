@@ -1,0 +1,842 @@
+{
+  "rows": [
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_person_evt27.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 34.28,
+      "description": "There is no person visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt4666.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 56.25,
+      "description": "This middle-aged man with short, curly white hair and glasses is sitting at a desk, remaining stationary while focusing on his computer monitors. He is wearing a light-colored short-sleeved t-shirt and light-colored shorts, and he is not carrying any accessories such as a bag or hat.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_motorcycle_evt4720.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 20.66,
+      "description": "I cannot describe a motorcycle or bicycle as there are none visible in this image. The image shows an indoor room with computers, monitors, and desk setups.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_car_evt6421.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 14.71,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the image. The image shows a room with computer setups, desks, and chairs.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt197.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 17.29,
+      "description": "There is no motorcycle or bicycle visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_person_evt1995.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 24.95,
+      "description": "I cannot fulfill this request because there is no person visible in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_car_evt18.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 35.4,
+      "description": "The vehicle is a silver compact SUV, likely from the 2015\u20132022 year range, and appears to have no visible damage or unique markings. It is currently stationary on a paved surface, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_car_evt2539.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 14.48,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the image. The image shows a person sitting at a desk with multiple computer monitors in a room.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_person_evt5.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 27.87,
+      "description": "I cannot fulfill this request because there is no person visible in the image. The dark, blurry shape in the center of the pavement lacks any distinguishable human features, clothing, or characteristics.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_motorcycle_evt4738.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 26.48,
+      "description": "I cannot find a motorcycle or bicycle in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 39.03,
+      "description": "A dark-colored bicycle is being ridden by a single person on the far right side of the paved area. The rider, who is not wearing a helmet, is dressed in a light-colored t-shirt and dark shorts while traveling toward the left of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 60.16,
+      "description": "A rider on a small motorcycle travels toward the right side of the image. The rider is wearing a white helmet and light-colored clothing with no passenger present.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt2127.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 42.2,
+      "description": "I cannot provide a description of a person because there is no person visible in the provided image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src1_person_evt145.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 42.21,
+      "description": "I cannot fulfill this request because there is no person visible in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 28.49,
+      "description": "A vehicle is not clearly visible in the provided image, making it impossible to determine its color, body style, make, model, or other identifying features.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt3688.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 40.09,
+      "description": "This middle-aged man with short, graying hair is sitting still at a desk while working on a computer. He is wearing a tan t-shirt and olive-colored shorts while going barefoot, and he is wearing a pair of eyeglasses.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 44.78,
+      "description": "A person of indeterminate age and gender is walking on the right side of the road. They are wearing a dark-colored top and dark pants, and are moving toward the right side of the image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 55.62,
+      "description": "A dark-colored motorcycle is being ridden toward the left side of the frame. The rider is wearing dark clothing and a dark-colored helmet, and there is no passenger.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 46.29,
+      "description": "The individual appears to be an adult with dark hair and is walking along the paved path toward the foreground. They are wearing a dark-colored top and dark pants with dark footwear, and no prominent accessories such as a backpack or hat are visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 49.24,
+      "description": "A distant individual, likely an adult, is standing in a garden area in the background. They appear to be wearing a reddish top and dark-colored pants, though their hair color, footwear, and any accessories are not visible from this distance. They appear to be stationary or moving slowly among the plants on the right side of the path.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_person_evt2129.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 40.53,
+      "description": "There is no person visible in this image. It shows a wooded area with a dirt path.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt1744.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 55.85,
+      "description": "There is no motorcycle or bicycle present in this image. It shows a man sitting at a desk in front of two computer monitors.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 82.06,
+      "description": "The image depicts a white and black motorcycle being ridden toward the right side of the frame. Due to heavy digital distortion, specific details such as the brand, the rider's clothing, and their helmet color are not clearly discernible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_car_evt6650.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 43.96,
+      "description": "I'm sorry, but I can't describe a vehicle because there isn't one in the image. The photo shows a workspace with computers, desks, and an office chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt627.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 31.34,
+      "description": "I cannot fulfill this request because there is no person visible in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_motorcycle_evt6127.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 15.27,
+      "description": "There is no motorcycle or bicycle present in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_car_evt7674.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 13.75,
+      "description": "There is no vehicle visible in this image. The image shows a person sitting at a desk using a computer.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 48.3,
+      "description": "A person is visible in the far distance on the right side of the frame, standing near the trees. Due to the distance and the nature of the security camera feed, specific details like their age, gender, hair color, and clothing colors cannot be determined. They appear to be stationary or moving very slowly toward the right edge of the image.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_car_evt2528.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 42.65,
+      "description": "There is no vehicle shown in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt2464.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 48.85,
+      "description": "I cannot provide a description because there is no person visible in the provided image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 73.92,
+      "description": "A white dirt bike is being ridden by a single person across a dirt path. The rider is wearing light-colored clothing and a matching helmet while traveling toward the right side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt3552.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 45.32,
+      "description": "I cannot provide a description of a vehicle because there is no clearly identifiable vehicle visible in the image. The scene shows a wooded area with a road or path, but any objects on the path are too blurred and low-resolution to identify as a vehicle or to determine any specific details like make, model, or color.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt84.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 20.33,
+      "description": "There is no motorcycle or bicycle visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 59.64,
+      "description": "Due to the distance and low resolution of the image, it is impossible to determine the person's age, gender, hair color, or specific clothing details. They appear as a small, dark figure standing or walking slowly near the treeline in the distance.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_person_evt4951.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 34.06,
+      "description": "A middle-aged man with short, gray hair is sitting at a desk and looking at computer monitors. He is wearing a light-colored, short-sleeved shirt and glasses, and he remains stationary while working.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt523.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 28.03,
+      "description": "I cannot provide a description of a person because no people are visible in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_car_evt23.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 66.88,
+      "description": "This is a white Kia Soul, a compact SUV likely from the 2014-2019 model range. The vehicle has no visible damage or unique markings and is facing toward the right of the frame with an illegible license plate.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_car_evt4855.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 21.96,
+      "description": "There is no vehicle visible in this image. The photo shows a person sitting at a desk in a room with multiple monitors and equipment.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt1505.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 127.1,
+      "description": "This middle-aged to older man has medium-length blonde or gray hair and is wearing a cream-colored t-shirt with dark-colored shorts. He is sitting stationary at a desk, focused on multiple computer monitors, and is not carrying any visible accessories.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 139.9,
+      "description": "A dark-colored SUV is visible on a wooded path, facing toward the right of the frame. Due to the image quality, the make, model, year, and license plate cannot be determined, and no distinctive markings are visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_car_evt14.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 63.35,
+      "description": "The vehicle is a silver sedan, likely a model from the late 1990s to mid-2000s such as a Toyota Corolla, with no visible damage or distinctive markings. It is traveling toward the left side of the frame, and its license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_person_evt27.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 2.13,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image. The image shows an empty concrete driveway or path bordered by grass and trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_person_evt4666.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 3.13,
+      "description": "A middle-aged male with short, curly light hair is seated at a desk facing away from the camera. He is wearing a light-colored short-sleeved t-shirt and light-colored shorts, and he is actively working on two computer monitors. He remains stationary while sitting in a black office chair.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_motorcycle_evt4720.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 2.43,
+      "description": "I cannot describe the motorcycle or bicycle because there is no vehicle, rider, or person visible in the image provided. The image shows an indoor office or study area with several computer monitors, a desk, and an office chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_car_evt6421.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 1.92,
+      "description": "I cannot fulfill this request because there is no vehicle present in the image provided. The image shows an indoor office setting with a desk, computer monitors, and a chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt197.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 2.05,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows a view of a wooded area with a grassy slope and a paved path or road, but no vehicles or people are present.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_person_evt1995.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 1.87,
+      "description": "I cannot fulfill this request because there is no person visible in the image provided. The image shows an indoor workspace with computer monitors, a desk, and a door.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_car_evt18.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 2.54,
+      "description": "A silver sedan, appearing to be a mid-2000s model, is parked on a concrete driveway facing away from the camera. No visible damage or distinctive markings are apparent on the vehicle, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_car_evt2539.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 1.92,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image shows a person sitting at a desk with several computer monitors in an indoor setting.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_person_evt5.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 1.83,
+      "description": "I cannot fulfill this request because there are no people visible in the image provided. The image shows an empty concrete walkway or driveway lined by trees and foliage.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_motorcycle_evt4738.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 2.08,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows the interior of a room with a desk, computer monitors, and a chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 1.96,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the image provided. The image shows an empty paved path or road surrounded by trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 2.49,
+      "description": "A person is riding a bicycle down a path through a wooded area, traveling from right to left. The rider is wearing light-colored clothing and does not appear to be wearing a helmet. There are no passengers visible on the bicycle.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt2127.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 1.98,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image. The image shows a paved road winding through a wooded, hilly area with a metal fence in the foreground.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src1_person_evt145.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 1.84,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image. The image shows an indoor office or workstation area with multiple computer monitors, desks, and chairs.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 2.19,
+      "description": "I cannot describe the vehicle because there is no vehicle visible in the provided image. The image shows a view of a wooded area and a grassy/paved area, but no car or other vehicle is present.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_person_evt3688.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 2.98,
+      "description": "An older man with short, graying hair is sitting in an office chair, facing away from the camera. He is wearing a light-colored t-shirt and patterned shorts, and he is focused on working on a large computer monitor. He is stationary, seated at a desk in an indoor setting.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 1.83,
+      "description": "I cannot describe the person because there is no person visible in the image provided. The image shows a wooded area with a paved path and a metal fence in the foreground.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 2.05,
+      "description": "I cannot provide a description of the motorcycle or bicycle because there is no vehicle, rider, or passenger visible in the image. The image shows an empty paved path or road surrounded by trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 2.52,
+      "description": "I'm sorry, but I cannot describe a person in this image because there is no person visible. The only living subject in the frame is a small, dark-colored dog walking away from the camera down a concrete path toward a wooded area.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 1.76,
+      "description": "I cannot fulfill this request because there are no people visible in the provided image. The image shows an empty concrete path next to a garden and trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_person_evt2129.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 1.76,
+      "description": "I'm sorry, but there are no people visible in the image provided to describe. The image shows a wooded area with a path or road.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_motorcycle_evt1744.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 1.83,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle present in the image provided. The image shows a man sitting at a desk in an office setting.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 2.03,
+      "description": "I cannot fulfill this request because the image provided does not contain a motorcycle or a bicycle; it appears to be a digitally corrupted or glitched image of a person sitting at a desk with computer monitors.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_car_evt6650.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 1.95,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image shows an indoor office setting with a desk, computer monitors, a keyboard, and an office chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam5_src4_person_evt627.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 1.63,
+      "description": "I cannot fulfill this request because there is no person visible in the image provided. The image shows an empty concrete path surrounded by trees and vegetation.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_motorcycle_evt6127.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 1.92,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle present in the provided image. The image shows an indoor office setting with computer monitors, a desk, and a chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_car_evt7674.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 1.72,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image shows a man sitting at a desk in an indoor office setting.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 1.32,
+      "description": "I am sorry, but I cannot fulfill this request as there are no people visible in the provided image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_car_evt2528.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 1.8,
+      "description": "I cannot fulfill this request because there is no vehicle present in the provided image. The image shows two people working at a desk with computers in an indoor setting.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt2464.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 2.38,
+      "description": "I'm sorry, but I cannot fulfill this request because there is no person visible in the image provided. The image shows a view of a paved path or road winding through a wooded, hilly area with a metal fence in the foreground.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 1.83,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows a person walking in a wooded area near a road.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt3552.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 1.8,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image shows a wooded area next to a paved path or road.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src2_motorcycle_evt84.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 2.0,
+      "description": "I am sorry, but I cannot fulfill this request because there is no motorcycle or bicycle visible in the image provided. The image shows a paved path or road lined by trees.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 1.95,
+      "description": "I cannot provide a description of the person because there is no person visible in the image provided. The image shows a view of a paved road or path bordering a wooded area.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_person_evt4951.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 3.06,
+      "description": "An older man with short, gray hair is seated at a desk, facing away from the camera and toward his computer monitors. He is wearing a light tan or beige short-sleeved shirt and appears to be working or browsing on the computer. He is stationary, facing toward the left side of the frame.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_person_evt523.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 1.62,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image. The image shows a wooded area with a path or road.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_car_evt23.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 2.48,
+      "description": "A white SUV, appearing to be a mid-2010s model, is traveling away from the camera on a paved driveway. No visible damage or distinctive markings are present on the vehicle, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_car_evt4855.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 1.95,
+      "description": "I cannot fulfill this request because there is no vehicle present in the provided image. The image shows an indoor office or workspace area with a person sitting at a desk with computers.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_person_evt1505.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 3.57,
+      "description": "An older male with short, wavy gray hair is sitting in a black mesh office chair, facing away from the camera toward two computer monitors. He is wearing a light beige short-sleeved shirt and dark gray shorts, and he appears to be resting his chin on his hand while looking at his screens. He is stationary at his desk, engaged in work or browsing the internet.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 1.93,
+      "description": "I cannot provide a description of the vehicle because there is no vehicle visible in the image provided. The image shows a view of a wooded area and a grassy path.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_car_evt14.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 2.43,
+      "description": "A silver, small hatchback, likely a mid-2000s model, is traveling down a paved driveway or road away from the camera. The vehicle has no visible damage or distinctive markings, and the license plate is not legible.",
+      "rejected": false,
+      "error": null
+    }
+  ],
+  "summary": {
+    "gemma4:12b": {
+      "n_ok": 41,
+      "n_errors": 0,
+      "mean_latency_s": 44.48,
+      "p95_latency_s": 82.06,
+      "reject_rate": 0.54,
+      "realtime_flag": true
+    },
+    "vllm:google/gemma-4-26B-A4B-it": {
+      "n_ok": 41,
+      "n_errors": 0,
+      "mean_latency_s": 2.11,
+      "p95_latency_s": 3.06,
+      "reject_rate": 0.83,
+      "realtime_flag": false
+    }
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "rows": [
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt80.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 10.38,
+      "description": "The person is riding a bicycle that appears to be black or dark gray. The rider is wearing a blue shirt and no helmet, and they are traveling toward the right side of the image. No passengers are present on the bike.",
+      "reasoning_chars": 0,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt340.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 9.87,
+      "description": "A person in white clothing and a white helmet is riding a white and blue motorcycle or bicycle toward the left. There is no passenger, and the vehicle's specific make is not discernible.",
+      "reasoning_chars": 0,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt247.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 56.26,
+      "description": "I cannot provide a description of the vehicle as there is no vehicle visible in the image provided.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt117.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 13.61,
+      "description": "I cannot provide a description of a person because there is no person visible in this image.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src2_motorcycle_evt53.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 25.21,
+      "description": "I cannot provide a description of a motorcycle or bicycle because there is no motorcycle or bicycle visible in the image. The image shows a person walking across a paved area in a wooded area.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt69.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 24.71,
+      "description": "The person appears to be an adult of indeterminate age and gender, with dark, short hair. They are wearing a dark-colored jacket or long-sleeved shirt, dark pants, and dark shoes, and they are not carrying any visible accessories. They are walking toward the camera along a paved path toward the foreground.",
+      "reasoning_chars": 0,
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam5_src4_person_evt217.jpg",
+      "camera_id": 5,
+      "label": "person",
+      "latency_s": 16.11,
+      "description": "I cannot provide a description of a person as there is no person visible in the image.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 13.47,
+      "description": "I cannot provide a description of a motorcycle or bicycle because there is no motorcycle or bicycle present in this image. The image shows a person sitting in a room in front of computer monitors.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_person_evt23.jpg",
+      "camera_id": 3,
+      "label": "person",
+      "latency_s": 11.41,
+      "description": "I cannot describe the person in the image because there is no person visible in the scene. The image shows a wide, paved area surrounded by trees and foliage.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt224.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 11.17,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the image provided.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt358.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 10.53,
+      "description": "I cannot provide a description of the person because the image is too blurry to identify their age, gender, clothing, or any specific accessories. The individual is visible in the distance as a small, indistinct figure and is not clearly defined enough to describe.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt279.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 11.91,
+      "description": "A vehicle is not visible in the provided image. The image shows a wooded area with a dirt path, but there are no cars or other vehicles present.",
+      "reasoning_chars": 0,
+      "rejected": true,
+      "error": null
+    }
+  ],
+  "summary": {
+    "gemma4:12b": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 17.89,
+      "p95_latency_s": 25.21,
+      "reject_rate": 0.75,
+      "mean_reasoning_chars": 0,
+      "realtime_flag": true
+    }
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "rows": [
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_motorcycle_evt197.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 13.16,
+      "description": "There is no motorcycle or bicycle visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_motorcycle_evt16.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 58.13,
+      "description": "I'm sorry, but there is no motorcycle or bicycle visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src3_person_evt139.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 146.55,
+      "description": "I cannot provide a description of a person because there is no clearly identifiable individual visible in the image. There is a small, dark shape near the tree line in the center of the image, but it is too far away and indistinct to determine any personal details like age, gender, hair, or clothing.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_car_evt4832.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 36.38,
+      "description": "I cannot fulfill this request because there is no vehicle present in the image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_car_evt6650.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 23.06,
+      "description": "I cannot describe a vehicle because there is no vehicle in the image provided. The image shows an indoor workspace with computer setups and a gaming chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_person_evt79.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 118.94,
+      "description": "The person is an older woman with short white hair wearing glasses and a light-colored, short-sleeved t-shirt. She is currently stationary while sitting at a desk and looking at a computer monitor.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 82.33,
+      "description": "A rider is traveling to the right on a white sport motorcycle. The rider is wearing a multicolored, patterned helmet and a tan-patterned shirt with no passenger.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam1_src0_person_evt6598.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 103.86,
+      "description": "This older man with short, white hair is sitting at a desk and facing a computer monitor. He is wearing a light-colored t-shirt and shorts with no visible accessories. He is stationary and not moving in any direction.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam6_src5_person_evt2018.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 82.53,
+      "description": "I cannot fulfill this request because there is no person visible in the provided image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam2_src0_motorcycle_evt1985.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 48.75,
+      "description": "I cannot describe a motorcycle or bicycle because there is no motorcycle or bicycle visible in the provided image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam3_src0_car_evt3.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 185.62,
+      "description": "This silver, 4-door compact hatchback appears to be a Toyota Matrix or similar model from the early-to-mid 2000s. It is facing toward the left side of the frame, and no significant damage or legible license plate information is visible.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "gemma4:12b",
+      "image": "cam4_src0_car_evt441.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 105.66,
+      "description": "No vehicle is visible in this image.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_motorcycle_evt197.jpg",
+      "camera_id": 4,
+      "label": "motorcycle",
+      "latency_s": 1.8,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle visible in the provided image. The image shows a wooded area with a patch of grass and a path, but no vehicles or riders are present.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_motorcycle_evt16.jpg",
+      "camera_id": 3,
+      "label": "motorcycle",
+      "latency_s": 1.2,
+      "description": "There are no motorcycles or bicycles visible in this image. The scene shows a paved driveway or road bordered by trees and greenery.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src3_person_evt139.jpg",
+      "camera_id": 4,
+      "label": "person",
+      "latency_s": 1.71,
+      "description": "I cannot fulfill this request because there are no people visible in the provided image. The image shows a quiet, wooded outdoor scene with a path or road and grassy areas.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_car_evt4832.jpg",
+      "camera_id": 2,
+      "label": "car",
+      "latency_s": 1.75,
+      "description": "I cannot fulfill this request. The image provided does not contain a vehicle; instead, it shows an indoor scene of a person in a room with a desk and computer equipment.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_car_evt6650.jpg",
+      "camera_id": 1,
+      "label": "car",
+      "latency_s": 1.75,
+      "description": "I cannot fulfill this request because there is no vehicle visible in the provided image. The image depicts an indoor office setting with a desk, computer monitors, and an office chair.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_person_evt79.jpg",
+      "camera_id": 2,
+      "label": "person",
+      "latency_s": 2.77,
+      "description": "This person appears to be an adult male with short, light-colored hair. He is wearing a light-colored short-sleeved shirt and is sitting at a desk, facing away from the camera while typing on a computer. He is not wearing any visible accessories and is stationary at his workstation.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_motorcycle_evt1921.jpg",
+      "camera_id": 1,
+      "label": "motorcycle",
+      "latency_s": 1.78,
+      "description": "I cannot fulfill this request because the image provided does not contain a motorcycle or a bicycle; it appears to be a corrupted digital image showing a person at a desk with computer monitors.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam1_src0_person_evt6598.jpg",
+      "camera_id": 1,
+      "label": "person",
+      "latency_s": 2.93,
+      "description": "An adult male with short, light-colored hair is sitting in an office chair at a desk. He is wearing a light-colored short-sleeved t-shirt and light-colored shorts, and he is facing away from the camera while working on a computer. He is stationary and not moving in any direction.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam6_src5_person_evt2018.jpg",
+      "camera_id": 6,
+      "label": "person",
+      "latency_s": 2.2,
+      "description": "I am sorry, but I cannot fulfill this request because there is no person visible in the provided image. The image shows a landscape with a path, some foliage, and a fenced-in area, but no people are present.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam2_src0_motorcycle_evt1985.jpg",
+      "camera_id": 2,
+      "label": "motorcycle",
+      "latency_s": 1.67,
+      "description": "I cannot fulfill this request because there is no motorcycle or bicycle present in the provided image. The image shows an indoor office or study area with desks, computer monitors, and a wooden door.",
+      "rejected": true,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam3_src0_car_evt3.jpg",
+      "camera_id": 3,
+      "label": "car",
+      "latency_s": 2.44,
+      "description": "A silver sedan, appearing to be a mid-2000s model, is traveling from left to right along a paved driveway or road. The vehicle shows no obvious damage or distinctive markings, and its license plate is not legible from this angle.",
+      "rejected": false,
+      "error": null
+    },
+    {
+      "model": "vllm:google/gemma-4-26B-A4B-it",
+      "image": "cam4_src0_car_evt441.jpg",
+      "camera_id": 4,
+      "label": "car",
+      "latency_s": 1.45,
+      "description": "I cannot describe the vehicle because there is no vehicle visible in the provided image. The image shows a black and white view of a grassy area and some trees.",
+      "rejected": true,
+      "error": null
+    }
+  ],
+  "summary": {
+    "gemma4:12b": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 83.75,
+      "p95_latency_s": 146.55,
+      "reject_rate": 0.67,
+      "realtime_flag": true
+    },
+    "vllm:google/gemma-4-26B-A4B-it": {
+      "n_ok": 12,
+      "n_errors": 0,
+      "mean_latency_s": 1.95,
+      "p95_latency_s": 2.77,
+      "reject_rate": 0.75,
+      "realtime_flag": false
+    }
+  }
+}
