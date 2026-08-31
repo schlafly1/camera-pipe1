@@ -33,8 +33,8 @@ CHROMADB_PORT  = 8000
 COLLECTION_NAME = "vision_events"       # per-object detections (search substrate)
 SEGMENT_COLLECTION = "vision_segments"  # per-10/30s "what happened" summaries (option c)
 OLLAMA_MODEL   = "nomic-embed-text"
-SNAPSHOT_DIR   = "/workspace/snapshots"
-SEARCH_HTML    = "/workspace/search.html"
+SNAPSHOT_DIR   = "snapshots"
+SEARCH_HTML    = "search.html"
 
 os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 os.makedirs("/tmp/hls", exist_ok=True)

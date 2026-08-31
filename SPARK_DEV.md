@@ -16,19 +16,43 @@ the VLM (general-purpose AI box, more memory to run a large model). Spark's
 own DeepStream container in this section is for development/testing before
 things move to Thor, not a second production deployment target.
 
-> **TODO before moving to Thor — read this first.** Everything from
-> "Prerequisites (Spark)" through "Adding a camera" below (`docker`,
-> `cam_multi.yml`, `Dockerfile`) is **Spark-only**. `git clone`/`git pull`
-> on Thor gets you the same repo, but there is no Jetson DeepStream
-> container image to build — `docker compose -f cam_multi.yml build` will
-> not work there. Skip straight to "Native Thor runbook" below instead.
-> That section's own step 0 has not been run against real Thor hardware
-> yet — the install paths, the `pyservicemaker` wheel location, and
-> whether `--system-site-packages` actually exposes JetPack's `gi` module
-> are all best-guesses from reading the Dockerfile, not confirmed. First
-> thing to do on Thor: work through step 0 command-by-command, fix any
-> path that doesn't match what's actually installed, and update this doc
-> with what was actually true.
+> **Update: native Thor runbook below has been run against real Thor
+> hardware (JetPack/L4T R39.2, DeepStream 9.1) and works end to end** —
+> all 6 cameras connecting, RT-DETR detecting, VLM descriptions round-
+> tripping to Spark's Ollama, saves landing in ChromaDB, search UI
+> answering queries. Everything from "Prerequisites (Spark)" through
+> "Adding a camera" below (`docker`, `cam_multi.yml`, `Dockerfile`) is
+> still **Spark-only** — skip straight to "Native Thor runbook". A few
+> things step 0 got wrong or omitted, now corrected there:
+> - `deepstream-app` needs two extra apt packages beyond the
+>   `deepstream-9.1` .deb itself: `libgstrtspserver-1.0-0` (missing dep)
+>   and `libmosquitto1` (needed by the tracker's low-level lib, even
+>   though nothing here uses MQTT). Also run the SDK's own
+>   `/opt/nvidia/deepstream/deepstream-9.1/install.sh` after the .deb —
+>   it wires up `update-alternatives` symlinks the .deb alone doesn't.
+> - `--system-site-packages` does expose JetPack's `gi` module to the
+>   venv, confirmed.
+> - The `pyservicemaker` wheel installs to system
+>   `dist-packages` (deepstream's own `install.sh` already
+>   `pip install --break-system-packages`'d it) rather than into the
+>   venv — harmless, `--system-site-packages` makes it visible either
+>   way, but don't expect to see it under `.venv/lib/...`.
+> - `pipeline_multi.py`, `query_server.py`, and `pgie_config_rtdetr.txt`
+>   had `/workspace/...` paths hardcoded (Docker's bind-mount point) —
+>   these are now relative paths, so run everything from the repo root.
+> - `snapshots/`, `stats/`, `chroma_data/` from a prior Docker run are
+>   `root`-owned (container ran as root) — native writes as your user
+>   fail with `Permission denied` until you `chown -R` them back.
+> - The RT-DETR custom parser (`models/trafficcamnet_transformer_lite/`)
+>   builds and runs fine natively — its Makefile derives
+>   `DS_SRC_PATH` from `deepstream-app -v`, no changes needed. Still have
+>   to fetch the 167MB ONNX per that dir's README (gitignored, not
+>   committed).
+> - New `start_thor.sh` / `stop_thor.sh` mirror `start.sh`/`stop.sh` but
+>   run everything as native processes (no `docker exec`) and load `.env`
+>   by reading it line-by-line rather than `source`-ing it — RTSP URLs
+>   containing `&`/`?` (e.g. Dahua `subtype=` query strings) get mangled
+>   by a real `source`, since bash reparses the value as shell syntax.
 
 ## Architecture
 
