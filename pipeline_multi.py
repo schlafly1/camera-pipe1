@@ -39,6 +39,13 @@ CHROMADB_HOST   = os.environ.get("CHROMADB_HOST", "localhost")
 CHROMADB_PORT   = int(os.environ.get("CHROMADB_PORT", "8000"))
 COLLECTION      = "vision_events"
 VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
+# Ollama's default context (262144, Gemma 4's max) makes its automatic
+# parallel-slot sizing pick num_parallel=1 regardless of OLLAMA_NUM_PARALLEL,
+# since each additional slot's KV cache scales with context length. Our
+# prompts are one short instruction + one image — nowhere near that — so
+# request a small context explicitly to leave slot-count headroom on the
+# server (confirmed via Spark's ollama process: `-c 262144 -np 1`).
+VLM_NUM_CTX     = int(os.environ.get("VLM_NUM_CTX", "4096"))
 EMBED_MODEL     = "nomic-embed-text"
 SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
 # Street cams still throttle per (camera, class) — shorter than office so real
@@ -46,6 +53,11 @@ SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
 # false positive on shadows/foliage) can't flood the VLM queue every frame.
 STREET_SAVE_INTERVAL = float(os.environ.get("STREET_SAVE_INTERVAL", "8.0"))
 VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
+# Ollama on Spark now runs with OLLAMA_NUM_PARALLEL=2 (see VLM_NUM_CTX above
+# for why that only became viable once num_ctx was capped) — matching worker
+# count here so the pipeline actually issues concurrent requests instead of
+# leaving the second server slot idle.
+VLM_WORKERS     = int(os.environ.get("VLM_WORKERS", "2"))
 # Hard ceiling for street cams, which otherwise queue unconditionally. Keeps a
 # stalled worker from growing the queue without bound (memory leak safeguard).
 STREET_QUEUE_MAX = int(os.environ.get("STREET_QUEUE_MAX", str(VLM_QUEUE_MAX * 8)))
@@ -616,6 +628,7 @@ def vlm_worker(event_queue, stats_registry):
                     "content": prompt,
                     "images": [jpeg_b64],
                 }],
+                options={"num_ctx": VLM_NUM_CTX},
             )
             description = resp["message"]["content"].strip()
 
@@ -864,12 +877,16 @@ def main():
     detector = ObjectDetector(event_queue, stats_registry, streams)
     stats_registry.write_all()  # fresh files immediately, so monitor sees all cams
 
-    worker = threading.Thread(
-        target=vlm_worker,
-        args=(event_queue, stats_registry),
-        daemon=True,
-    )
-    worker.start()
+    workers = [
+        threading.Thread(
+            target=vlm_worker,
+            args=(event_queue, stats_registry),
+            daemon=True,
+        )
+        for _ in range(VLM_WORKERS)
+    ]
+    for worker in workers:
+        worker.start()
 
     heartbeat = threading.Thread(
         target=stats_heartbeat,
@@ -893,8 +910,10 @@ def main():
     except KeyboardInterrupt:
         log.info("Stopping...")
     finally:
-        event_queue.put(None)
-        worker.join()
+        for _ in workers:
+            event_queue.put(None)
+        for worker in workers:
+            worker.join()
 
 
 if __name__ == "__main__":
