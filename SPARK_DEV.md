@@ -388,6 +388,67 @@ DeepStream and stays Spark-only for now — a heavier, separate component.
 Revisit (including whether vLLM is even practical natively on Thor) only
 once the base pipeline is proven stable there.
 
+### 8. gx10 vLLM container (eval backend for the 12B cutover, not live yet)
+
+A standing vLLM container on gx10 (hostname `gx10-2ea8`) serves
+`google/gemma-4-12B-it` on `:8000` for the eval/cutover work in
+`eval_vlm_models.py` and `notes/vllm_cutover_design.md`. **Live Thor capture
+still uses Spark Ollama `gemma4:12b`** (`pipeline_multi.py`'s `ollama.chat`
+call) ? this container is eval-only until `VLM_BACKEND=vllm` actually ships
+and gets flipped; see `notes/vllm_cutover_design.md` for that plan.
+
+Current live container (confirmed via `docker inspect` 2026-09-16 ? recreated
+~2026-09-14 with `--restart unless-stopped` so it survives a gx10 reboot):
+
+```bash
+docker run -d --name vllm-gemma4-12b \
+  --restart unless-stopped \
+  --gpus all \
+  --network host \
+  -v /home/roger/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:gemma4-unified \
+  google/gemma-4-12B-it \
+  --host 0.0.0.0 --port 8000 \
+  --max-model-len 8192 \
+  --gpu-memory-utilization 0.85 \
+  --max-num-seqs 4 \
+  --limit-mm-per-prompt '{"image":1,"audio":0}' \
+  --async-scheduling
+```
+
+Notes:
+
+- **Image**: `vllm/vllm-openai:gemma4-unified` ? the build with Gemma 4 12B
+  "Unified" (encoder-free) architecture support. Earlier/other tags (e.g.
+  older `gemma4-cu130` / May builds) predate that support and fail to load
+  this model ? don't downgrade the image tag.
+- **Entrypoint is already `vllm serve`** ? the image's `ENTRYPOINT` supplies
+  `serve`; the command above passes only the model id and flags after the
+  image name. Adding a literal `serve` again makes `vllm serve` see two
+  positional model args and fail to start.
+- **`--network host`**: live container uses host networking (no `-p`
+  publish). Port 8000 is on the host namespace directly.
+- **`--restart unless-stopped`**: recreated ~2026-09-14 specifically so this
+  survives a gx10 reboot or Docker daemon restart without manual intervention.
+- **HF cache mount** (`/home/roger/.cache/huggingface`) avoids re-downloading
+  the model weights on every container recreation.
+- **Thinking is off** at the server/template level (no
+  `chat_template_kwargs` needed at call time) ? matches how
+  `eval_vllm_12b_n3.json` was generated.
+- Recreating the container (e.g. after an image update) is just
+  `docker rm -f vllm-gemma4-12b` followed by the `docker run` above ? there's
+  no state to preserve beyond the HF cache mount.
+
+Health check:
+
+```bash
+curl -s http://gx10-2ea8:8000/v1/models | grep google/gemma-4-12B-it
+```
+
+Returns the model listing if the server is up and finished loading; empty
+output or connection-refused means it's down or still loading (cold start can
+take a minute or two even with the HF cache warm).
+
 ## Rollback
 
 To return to the per-camera model:
