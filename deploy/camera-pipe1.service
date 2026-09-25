@@ -1,0 +1,24 @@
+# systemd USER unit: start the camera-pipe1 stack at boot (no root needed).
+# Install (as roger):
+#   loginctl enable-linger roger          # user manager runs at boot
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/camera-pipe1.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable camera-pipe1.service
+# Oneshot + RemainAfterExit: boot_thor.sh launches the processes detached and
+# exits; they stay in this unit's cgroup. No Restart= on purpose — a manual
+# start_thor.sh would pkill the processes and systemd would race it with a
+# second copy. `systemctl --user stop camera-pipe1` runs stop_thor.sh.
+[Unit]
+Description=camera-pipe1 stack on Thor (pipeline_multi, query_server, monitor)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/roger/sd/camera-pipe1
+ExecStart=/home/roger/sd/camera-pipe1/boot_thor.sh
+ExecStop=/home/roger/sd/camera-pipe1/stop_thor.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

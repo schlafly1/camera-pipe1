@@ -53,14 +53,29 @@ mkdir -p logs chroma_data snapshots stats
 # NOPASSWD sudo for exactly these paths is in /etc/sudoers.d/thor-power-tuning.
 echo "==> Smoothing GPU DVFS ramp (over-current mitigation)..."
 GPU_DEVFREQ=/sys/class/devfreq/gpu-gpc-0
-echo 50 | sudo tee "$GPU_DEVFREQ/polling_interval"            >/dev/null
-echo 10 | sudo tee "$GPU_DEVFREQ/nvhost_podgov/k"              >/dev/null
+# sudo -n: never prompt (this also runs unattended at boot via boot_thor.sh);
+# a failure here is a warning, not a reason to leave the stack down.
+echo 50 | sudo -n tee "$GPU_DEVFREQ/polling_interval" >/dev/null \
+    || echo "    WARN: could not set $GPU_DEVFREQ/polling_interval" >&2
+echo 10 | sudo -n tee "$GPU_DEVFREQ/nvhost_podgov/k"  >/dev/null \
+    || echo "    WARN: could not set $GPU_DEVFREQ/nvhost_podgov/k" >&2
 # up_freq_margin write is silently ignored by this kernel/driver (confirmed
 # stuck at its default of 10 regardless of value written) — left out rather
 # than implying it does something.
 
 echo "==> Checking ChromaDB..."
-if ! (echo > /dev/tcp/127.0.0.1/8000) 2>/dev/null; then
+# On Thor the live Chroma is the Docker container camera-pipe1-chromadb-1
+# (restart=unless-stopped, chroma_data/ mounted at /data). At boot it may not
+# be listening yet; starting a native `chroma run` on the same chroma_data/
+# would race it for :8000 and have two Chroma versions touching the same
+# sqlite files. CHROMA_NO_NATIVE=1 (set by boot_thor.sh) waits up to
+# CHROMA_WAIT_S for :8000 and never starts a native server.
+if [ "${CHROMA_NO_NATIVE:-0}" = "1" ]; then
+    for i in $(seq 1 "${CHROMA_WAIT_S:-180}"); do
+        (echo > /dev/tcp/127.0.0.1/8000) 2>/dev/null && break
+        sleep 1
+    done
+elif ! (echo > /dev/tcp/127.0.0.1/8000) 2>/dev/null; then
     echo "    Starting chroma run --path chroma_data --port 8000"
     nohup "$CHROMA" run --path chroma_data --port 8000 \
         > logs/chromadb.log 2>&1 &
@@ -76,8 +91,18 @@ fi
 echo "    chromadb up on :8000"
 
 echo "==> Stopping any old pipeline/query processes..."
-pkill -f 'python3? .*pipeline_multi.py' 2>/dev/null || true
-pkill -f 'python3? .*query_server.py'   2>/dev/null || true
+# Anchored to the interpreter at the start of the command line, so a shell or
+# agent whose command line merely mentions these file names is never matched.
+PIPE_PAT='^[^ ]*python3?( -u)? pipeline_multi\.py'
+QUERY_PAT='^[^ ]*python3?( -u)? query_server\.py'
+pkill -f "$PIPE_PAT"  2>/dev/null || true
+pkill -f "$QUERY_PAT" 2>/dev/null || true
+for i in $(seq 1 15); do
+    pgrep -f "$PIPE_PAT" >/dev/null || pgrep -f "$QUERY_PAT" >/dev/null || break
+    sleep 1
+done
+pkill -9 -f "$PIPE_PAT"  2>/dev/null || true
+pkill -9 -f "$QUERY_PAT" 2>/dev/null || true
 sleep 1
 
 echo "==> Launching pipeline_multi.py (logs/pipeline-console.log)..."
@@ -89,7 +114,7 @@ nohup "$PY" -u query_server.py > logs/query_server.log 2>&1 &
 sleep 3
 ok=1
 for proc in pipeline_multi query_server; do
-    if pgrep -f "python3? .*$proc.py" >/dev/null; then
+    if pgrep -f "^[^ ]*python3?( -u)? $proc\.py" >/dev/null; then
         echo "    $proc.py running"
     else
         ok=0
