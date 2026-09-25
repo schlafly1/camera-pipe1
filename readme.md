@@ -1,175 +1,250 @@
 # camera-pipe1
 
-DeepStream 9.0 camera pipeline for NVIDIA Jetson Thor (JetPack 7.2) and DGX Spark.
+DeepStream 9.1 camera pipeline running natively on NVIDIA Jetson Thor
+(JetPack 7.2 / L4T R39.2), with the VLM served from a separate DGX Spark box.
 
-Detects vehicles, motorcycles, and persons via TrafficCamNet, sends each
-detection frame to a VLM (Gemma4:26b via Ollama) for a natural-language
-description, embeds the description with nomic-embed-text, and stores it in
-ChromaDB. A FastAPI server serves a search UI for natural-language queries.
+It detects cars, persons, and bicycles/motorcycles with RT-DETR (TrafficCamNet
+Transformer Lite), sends each detection frame to a VLM for a natural-language
+description, uses that description to reject detector false positives, embeds
+the accepted descriptions with nomic-embed-text, and stores them in ChromaDB. A
+FastAPI server (Vision Search) serves a search UI for natural-language queries.
 
-## Recommended: multi-stream pipeline
+Everything lives on the `main` branch (the old `multi-stream` branch is gone).
 
-**One DS9 pipeline for all cameras** — develop on Spark, deploy on Thor.
+## Current setup (hosts)
 
-See **[SPARK_DEV.md](SPARK_DEV.md)** for full up-to-date instructions (including how to run `pipeline_multi.py` and `query_server.py`).
-
-Quick start (multi-stream):
-
-```bash
-./start.sh          # containers + pipeline + query server, then monitor.py
+```
+6 RTSP cams ──> Thor: pipeline_multi.py (DeepStream 9.1, one batched nvstreammux
+                 → nvinfer RT-DETR → nvtracker → probe)
+                         │  detections queue (2 VLM worker threads)
+                         v
+          VLM describe:  vLLM  google/gemma-4-12B-it, thinking off   gx10-2ea8:8000
+          fallback:      Ollama gemma4:12b, OLLAMA_THINK=false        spark-2251:11434
+          embeddings:    Ollama nomic-embed-text                      spark-2251:11434
+                         │
+                         v
+          Thor: ChromaDB (Docker, :8000)  <──  query_server.py (Vision Search, :8001)
 ```
 
-`./start.sh --no-monitor` skips the monitor; `./stop.sh` stops the python
-processes (containers keep running, preserving the TensorRT engine cache).
-Restarting after a code change is just `./start.sh` again.
+| Host | Runs |
+|------|------|
+| **Thor** (`thor2`) | `pipeline_multi.py` (capture + detection + VLM workers), `query_server.py` on **:8001**, `monitor.py`, and ChromaDB on **:8000** as the Docker container `camera-pipe1-chromadb-1` (image `chromadb/chroma:latest`, `restart: unless-stopped`, `./chroma_data` mounted at `/data`; created from `cam1.yml`'s `chromadb` service). |
+| **gx10** (`gx10-2ea8`, DGX Spark) | Docker `vllm-gemma4-12b` serving `google/gemma-4-12B-it` on :8000 (see SPARK_DEV.md §8). Primary VLM. |
+| **Spark** (`spark-2251`) | Ollama: `gemma4:12b` (VLM fallback) and `nomic-embed-text` (all embeddings, for both the pipeline and query_server). |
 
-UI: http://localhost:8001
+Notes:
+- Use `gx10-2ea8` — the short name `gx10` does **not** resolve from Thor.
+- The VLM call is per event: if vLLM is unhealthy or a call fails/times out,
+  that event goes to Ollama on Spark instead (no restart needed). vLLM is
+  re-probed every `VLLM_HEALTHCHECK_S`.
+- Embeddings always come from Spark Ollama regardless of `VLM_BACKEND`, so the
+  ChromaDB vector space doesn't change when the VLM backend does.
+- Spark also runs a leftover `camera-pipe1-chromadb-1` container; it is not the
+  live store. Live Chroma is Thor-local (`localhost:8000`).
 
-<details><summary>Manual equivalent (what start.sh does)</summary>
+Search UI: http://thor2:8001 (or http://localhost:8001 on Thor)
+REST: `curl "http://localhost:8001/query?text=red+car"`
 
-```bash
-docker compose -f cam_multi.yml up -d
-docker exec -it camera-pipe1-deepstream-1 bash
-python3 pipeline_multi.py     # one process handles all cameras
-```
-
-In a second shell:
-```bash
-docker exec -it camera-pipe1-deepstream-1 bash
-python3 query_server.py
-```
-</details>
-
-See SPARK_DEV.md for environment variables (especially `RTSP_TRANSPORT_CAMn=4` for reliable TCP), troubleshooting camera feeds, and the difference from the old per-camera setup.
+## Start, stop, boot
 
 ```bash
-cp env.example .env          # set RTSP_URL_CAM1..4, OLLAMA_HOST
-docker compose -f cam_multi.yml build
-docker compose -f cam_multi.yml up -d
-
-docker exec -it camera-pipe1-deepstream-1 bash
-python3 pipeline_multi.py    # all cameras in one process
-
-python3 query_server.py      # search UI on :8001
-python3 monitor.py           # on host — per-camera stats + event funnel
-```
-
-The pipeline also writes a rotating log to `logs/pipeline.log` (every
-detection, VLM reject, skip, and error survives terminal scrollback), and
-heartbeats per-camera stats to `stats/cam*_stats.json` every 10s so
-`monitor.py` can tell a down camera from a quiet one.
-
-| Multi-stream | Legacy (per-camera) |
-|--------------|---------------------|
-| `pipeline_multi.py` | `pipeline2.py` |
-| `cam_multi.yml` | `cam1.yml` |
-| `pgie_config_multi.yml` | `pgie_config.yml` |
-
-Set `ENABLE_DISPLAY=1` in `.env` for a live 2×2 tile with bounding boxes (the legacy
-pipeline never wired a display sink).
-
-## Requirements
-
-- NVIDIA Jetson Thor or DGX Spark with Docker + NVIDIA Container Toolkit
-- DeepStream 9.0 container (`nvcr.io/nvidia/deepstream:9.0-triton-multiarch`)
-- Ollama with `gemma4:26b` and `nomic-embed-text` (Spark recommended for VLM)
-- One or more RTSP cameras reachable from the edge device
-
-## Legacy setup (one container per camera)
-
-```bash
-# 1. Copy and fill in your camera URLs
-cp env.example .env
-# edit .env — set RTSP_URL_CAM1..4, set RTSP_TRANSPORT_CAMx=4 for TCP cameras
-
-# 2. Allow containers to use the X11 display (once per session / reboot)
-xhost +local:
-
-# 3. Build and start containers
 cd ~/sd/camera-pipe1
-docker compose -f cam1.yml build   # first time only (~3-5 min)
-docker compose -f cam1.yml up -d
+./start_thor.sh               # (re)start pipeline + query server, then run monitor.py in this terminal
+./start_thor.sh --no-monitor  # same, but return to the shell
+./stop_thor.sh                # stop pipeline + query server (Chroma container and monitor.py keep running)
 ```
 
-## Running
+`stop_thor.sh` never stops `monitor.py`; use Ctrl+C, or for the nohup'd one
+`pkill -f '^[^ ]*python3?( -u)? monitor\.py'`. `stop_thor.sh --all` also
+stops a *native* `chroma run`, not the Docker container.
 
-Open one terminal per camera plus one for the query server, one to monitor:
+`start_thor.sh` loads `.env` line by line (RTSP URLs with `&`/`?` survive),
+reapplies the GPU DVFS smoothing (passwordless `sudo -n` for exactly those
+sysfs paths), checks Chroma on :8000, kills any old `pipeline_multi.py` /
+`query_server.py` (patterns anchored to the interpreter, waits up to 15s),
+and relaunches both detached. It is safe to re-run after a code or `.env`
+change — that is the restart procedure. It does not touch a running
+`monitor.py`. If nothing answers on :8000 it starts a native `chroma run` on
+`chroma_data/` — on Thor that should not happen because the Docker container
+owns that directory; `CHROMA_NO_NATIVE=1` makes it wait instead.
+
+The TensorRT engine is rebuilt on every start (`pgie_config_rtdetr.txt` omits
+`model-engine-file`), so the first detections appear ~2 minutes after a start.
+
+**Start at boot.** A systemd *user* unit (no root; `loginctl enable-linger
+roger` is enabled so the user manager starts at boot):
+
+- Unit: `~/.config/systemd/user/camera-pipe1.service` (copy of
+  `deploy/camera-pipe1.service`; install steps are in its header), enabled
+  under `default.target`.
+- It runs `boot_thor.sh`, which: exits if `pipeline_multi.py` is already
+  running (no duplicate stack); runs `start_thor.sh --no-monitor` with
+  `CHROMA_NO_NATIVE=1` (waits up to `CHROMA_WAIT_S`=180s for the Docker Chroma,
+  never starts a native one); then starts `monitor.py` under nohup, rotating
+  the previous `logs/monitor.log` to `logs/monitor.log.1`.
+- It is `Type=oneshot` + `RemainAfterExit=yes` with no `Restart=`: it starts
+  the stack at boot but **does not restart the pipeline after a crash**.
+  Recover with `./start_thor.sh --no-monitor`.
 
 ```bash
-# Camera 1
-docker exec -it camera-pipe1-deepstream-cam1-1 bash
-DISPLAY=:1 python3 pipeline2.py
-
-# Camera 2 (repeat for cam3, cam4)
-docker exec -it camera-pipe1-deepstream-cam2-1 bash
-DISPLAY=:1 python3 pipeline2.py
-
-# Camera 3
-docker exec -it camera-pipe1-deepstream-cam3-1 bash
-DISPLAY=:1 python3 pipeline2.py
-# Camera 4
-docker exec -it camera-pipe1-deepstream-cam4-1 bash
-DISPLAY=:1 python3 pipeline2.py
-
-# Query server (run in any deepstream container)
-docker exec -it camera-pipe1-deepstream-cam1-1 bash
-python3 query_server.py
-
-# Monitoring app
-python3 monitor.py
-
+systemctl --user status camera-pipe1       # enabled; "active (exited)" only after a boot run
+journalctl --user -u camera-pipe1          # unit start/stop only
+cat logs/boot.log                          # boot_thor.sh / start_thor.sh output
 ```
 
-Search UI: http://localhost:8001  
-REST API: `curl "http://localhost:8001/query?text=red+car"`
+If the stack was started by hand with `start_thor.sh`, the unit stays
+`inactive (dead)` — that's expected; `systemctl --user stop camera-pipe1`
+only runs `stop_thor.sh` when the unit itself is active, so use
+`./stop_thor.sh` directly.
+
+## Logs and monitoring
+
+| Path | What |
+|------|------|
+| `logs/pipeline.log` | Rotating (5 MB × 3): every detection, VLM accept and REJECT (REJECT lines end with `[vllm]`/`[ollama]`; accepts record the backend in Chroma metadata), skip, vLLM fallback/health change, error |
+| `logs/pipeline-console.log` | Pipeline stdout/stderr incl. DeepStream/TensorRT output (not rotated) |
+| `logs/query_server.log` | query_server output |
+| `logs/monitor.log` (+ `.1`) | `monitor.py` screen output; rotated to `.1` only at boot |
+| `logs/boot.log` | Boot-unit runs |
+| `stats/cam*_stats.json` | Per-camera funnel counters, rewritten every 10s |
+
+`monitor.py` (`.venv/bin/python3 monitor.py`) shows per-camera frame age,
+rates, VLM latency, queue depth and the event funnel (detections → low_conf →
+dedup → throttled → queued → drops/stale → reject → saved) plus tegrastats. The
+stats files also carry `vlm_calls_vllm_total`, `vlm_calls_ollama_total`,
+`vllm_fallback_total`, `vlm_call_ms_avg`/`vlm_call_ms_max` (pure VLM round
+trip) and `vlm_backend_last`, which the monitor table doesn't display yet.
 
 ## Configuration
 
-| Setting | File | Default |
-|---------|------|---------|
-| Inference interval (0 = every frame, 4 = every 5th) | `pgie_config.yml` → `interval` | 4 |
-| Min seconds between saves per object class per camera | `pipeline_multi.py` → `SAVE_INTERVAL` (in .env) | 30.0 (raise if VLM can't keep up) |
-| VLM model | `.env` → `VLM_MODEL` | `gemma4:26b` |
-| Force TCP RTSP | `.env` → `RTSP_TRANSPORT_CAMx=4` | 0 (UDP) |
+Set in `.env` (never committed; `env.example` is the template). "Code
+default" is what applies when the variable is unset; "Live" is Thor's `.env`.
 
-## Shutdown
+**VLM backend and models**
+
+| Variable | Code default | Live | Notes |
+|----------|--------------|------|-------|
+| `VLM_BACKEND` | `ollama` | `vllm` | `vllm` = gx10 first, Ollama fallback per event |
+| `VLLM_URL` | `http://gx10-2ea8:8000` | same | OpenAI-compatible endpoint |
+| `VLLM_MODEL` | `google/gemma-4-12B-it` | same | Must match `curl $VLLM_URL/v1/models` |
+| `VLLM_TIMEOUT_S` | `20` | unset | Per call; eval p95 was 8.6s |
+| `VLLM_HEALTHCHECK_S` | `30` | unset | Min seconds between health probes; a failed call marks vLLM down immediately |
+| `VLLM_MAX_TOKENS` | `300` | unset | |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` (ollama client) | `http://spark-2251:11434` | Fallback VLM + all embeddings |
+| `VLM_MODEL` | `gemma4:26b` | `gemma4:12b` | Ollama model for the fallback path |
+| `OLLAMA_THINK` | `false` | `false` | `false` = fast mode; `true`; `default` omits the param (gemma4 then thinks) |
+| `OLLAMA_CHAT_TIMEOUT_S` / `OLLAMA_EMBED_TIMEOUT_S` | `180` / `30` | unset | |
+| `VLM_NUM_CTX` | `4096` | unset | Ollama context cap (lets Spark run 2 parallel slots) |
+| `VLM_WORKERS` | `2` | unset | VLM worker threads |
+
+vLLM requests always send `chat_template_kwargs: {"enable_thinking": false}`.
+The embedding model is fixed in code (`EMBED_MODEL = "nomic-embed-text"`).
+
+**Cameras and detection**
+
+| Variable | Code default | Live | Notes |
+|----------|--------------|------|-------|
+| `RTSP_URL_CAM1..N` | — | cam1–cam6 | Numbering stops at the first gap |
+| `RTSP_TRANSPORT_CAMn` (or global `RTSP_TRANSPORT`) | `0` | unset | `4` forces TCP |
+| `CAM_TYPE_CAMn` | `street` | cam1–2 `office`, cam3–6 `street` | Office: `SAVE_INTERVAL` throttle, dropped when the queue is full |
+| `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `3` | Comma list of detector class ids ignored on that camera (before any counting) |
+| `SAVE_INTERVAL` | `30.0` | `30.0` | Office cams: min seconds between events per class |
+| `STREET_SAVE_INTERVAL` | `8.0` | unset | Street cams: same, shorter |
+| `MIN_TRACK_HITS` | `2` | unset | Tracker hits before a track emits its one event |
+| `PGIE_CONFIG` | `pgie_config_rtdetr.txt` | unset | Detector config |
+| `FRAME_W` / `FRAME_H` | `1280` / `720` | unset | Mux resolution |
+
+Detector classes (RT-DETR NGC order): 0=Car, 1=RoadSign (filtered out in
+`pgie_config_rtdetr.txt`), 2=Person, 3=Bicycle (app label `motorcycle`).
+Class 3 is dropped on the office cams because it fires on empty rooms
+(`notes/motorcycle_rejects_eyeball.md`). Confidence gates are hard-coded in
+`pipeline_multi.py`: `DETECT_MIN_CONF = {0: 0.50, 2: 0.40, 3: 0.40}` (car,
+person, motorcycle), on top of the detector's `pre-cluster-threshold=0.4`;
+inference runs every 5th frame (`interval=4`).
+
+**Queue, frames, snapshots**
+
+| Variable | Code default | Live | Notes |
+|----------|--------------|------|-------|
+| `VLM_QUEUE_MAX` | `12` | `12` | Office cams dropped above this |
+| `STREET_QUEUE_MAX` | `VLM_QUEUE_MAX × 8` | unset | Hard cap for street cams |
+| `MAX_EVENT_AGE_S` | `300.0` | unset | Skip events that waited longer in the queue |
+| `VLM_STALE_FRAME_MAX_GAP_S` | `20.0` | unset | Skip the VLM call if the chosen frame is further than this from the detection |
+| `SNAPSHOT_RING_FILES` | `900` | unset | Per-camera `/tmp/frame_camN_*.jpg` ring |
+| `FRAME_PICK_CLOSEST` | `0` | off | `1` = pick the in-window frame closest to the detection (fixes late workers always getting "now"); not enabled yet |
+| `SAVE_REJECTS` | `0` | off | `1` = keep rejected frames for labeling (below) |
+| `REJECT_DIR` / `REJECT_SAVE_MAX` | `snapshots_rejected` / `2000` | unset | Oldest deleted beyond the cap |
+
+**Other:** `ENABLE_DISPLAY` (`0`) / `HEADLESS` (`1`, legacy alias) for a live
+tiled window, `LIVE_STREAM` (`0`) for an HLS stream at `/hls/stream.m3u8`,
+`TILER_W`/`TILER_H` (`1280`/`720`), `LOG_DIR` (`logs`), `STATS_HEARTBEAT_S`
+(`10`), `CHROMADB_HOST`/`CHROMADB_PORT` (`localhost`/`8000`; pipeline only —
+`query_server.py` hard-codes `localhost:8000`). Boot/start only:
+`CHROMA_NO_NATIVE` (`0`; `boot_thor.sh` sets `1`), `CHROMA_WAIT_S` (`180`).
+
+## Rolling back to Ollama, and the self-test
+
+Rollback is env-only: set `VLM_BACKEND=ollama` in `.env`, then
+`./start_thor.sh --no-monitor`. Ollama stays in fast mode unless you also set
+`OLLAMA_THINK=default` (old behavior, thinking on, much slower).
+
+Check both backends and the fallback without touching the running pipeline
+(one real call to gx10 and two to Spark, on one saved snapshot):
 
 ```bash
-# Preserves TRT engines (cached inside containers) — fast restart next time
-docker compose -f cam1.yml stop
-
-# After reboot: xhost +local: then docker compose -f cam1.yml up -d
-
-# Full reset (clears ChromaDB and snapshots)
-sudo rm -rf chroma_data/*
-rm -rf snapshots/*
+LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/vlm_backend_selftest.py [snapshots/<file>.jpg]
 ```
 
-## Adding cameras
+`LOG_DIR` keeps it out of `logs/pipeline.log`; it prints `SELFTEST PASS`/`FAIL`.
+Health check by hand: `curl -s http://gx10-2ea8:8000/v1/models`,
+`curl -s http://spark-2251:11434/api/ps`.
 
-See `plan.md` for step-by-step instructions.
+## Snapshots and rejected frames
+
+- Accepted events are saved as `snapshots/cam{N}_src{S}_{label}_evt{K}.jpg`
+  with a ChromaDB record (metadata includes `vlm_backend`, `vlm_model`).
+  Event numbers continue after the highest `evt` already in `snapshots/` for
+  each camera, so restarts no longer overwrite old snapshots or reuse Chroma
+  ids.
+- Rejected events are not saved by default. With `SAVE_REJECTS=1` each rejected
+  frame goes to `snapshots_rejected/<time>_cam{N}_{label}_evt{K}.jpg` with a
+  sidecar `.json` (camera, label, confidence, backend/model, frame staleness,
+  full VLM description).
+
+Full reset (clears search history): `./stop_thor.sh`, `docker stop
+camera-pipe1-chromadb-1`, then `sudo rm -rf chroma_data/* && rm -rf
+snapshots/*`, `docker start camera-pipe1-chromadb-1`.
+
+## Evals
+
+Offline comparisons are made with `eval_vlm_models.py` over saved snapshots;
+results are the `eval_*.json` files in the repo root (e.g.
+`eval_vllm_12b_n3.json`: vLLM 12B fast 5.7s mean vs Ollama 12B with thinking
+326s; `eval_2x2_*`: thinking vs fast on both backends). Analysis notes:
+`notes/detect_min_conf_rejects.md`, `notes/motorcycle_rejects_eyeball.md`,
+`notes/vllm_cutover_applied.md`.
+
+**There is no human ground truth.** Eval rows record only the detector label,
+the model's description and a rejected flag, and the images are previously
+accepted snapshots. So reject rate measures disagreement with the detector (or
+an earlier VLM), not accuracy — a high reject rate can mean the detector
+produced false positives. The only human check so far is the 13-image eyeball
+in `notes/motorcycle_rejects_eyeball.md`.
+
+## Other docs and legacy paths
+
+- **SPARK_DEV.md** — native Thor install runbook, the gx10 vLLM `docker run`
+  (§8), and the Spark/Docker development path (`cam_multi.yml`, `Dockerfile`,
+  `start.sh`/`stop.sh`), which is Spark-only; Thor runs natively.
+- **notes/vllm_cutover_applied.md** — what the VLM cutover changed;
+  `notes/vllm_cutover_design.md` is the earlier design (superseded).
+- **plan_multi.md** — adding a camera (`.env` + a `<option>` in `search.html`).
+- Legacy per-camera pipeline (`pipeline2.py`, `cam1.yml`, `pgie_config.yml`) is
+  kept for reference only; `cam1.yml` still defines the Chroma container.
 
 ## Power
 
-Running 4 cameras + VLM inference draws ~60-80W. If you see over-current
-warnings, cap the power mode: `sudo nvpmodel -m 2`. Monitor with `tegrastats`.
-
-## Offloading Ollama models
-
-2. On the remote Jetson — start Ollama bound to all interfaces:
-  OLLAMA_HOST=0.0.0.0 ollama serve
-  And make sure models are pulled (only needs to be done once):
-  ollama pull gemma4:26b
-  ollama pull nomic-embed-text
-  
-  3. In your .env on Thor — change OLLAMA_HOST:
-  OLLAMA_HOST=http://<remote-jetson-ip>:11434
-
-  4. Restart the deepstream containers to pick up the new env:
-  docker compose -f cam1.yml up -d --force-recreate
-
-  That's it. Since the cameras are quiet, the remote Ollama latency is a
-  non-issue — VLM calls are already fire-and-forget on a background thread, so a
-  slow response just means a slight delay before the description lands in
-  ChromaDB. DeepStream detection continues uninterrupted regardless.
-
+Under full multi-camera load the monitor often shows power near its limit.
+`start_thor.sh` slows the GPU DVFS ramp to avoid over-current throttling; if
+you still see over-current warnings, cap the power mode with `sudo nvpmodel -m
+2`. Watch with `tegrastats` (or `monitor.py`).

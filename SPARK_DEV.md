@@ -1,5 +1,14 @@
 # Spark Development — Multi-Stream Pipeline
 
+> **Current live setup (2026-09-25) — see [readme.md](readme.md) first.**
+> Thor runs natively via `start_thor.sh` (boot: `boot_thor.sh` + systemd user
+> unit `camera-pipe1.service`). The VLM is vLLM `google/gemma-4-12B-it` on
+> gx10 (`gx10-2ea8:8000`, §8) with per-event fallback to Ollama `gemma4:12b`
+> on Spark (`spark-2251:11434`, `OLLAMA_THINK=false`); embeddings stay on
+> Spark Ollama. ChromaDB is the Thor-local Docker container on :8000, not
+> Spark. Everything is on the `main` branch. Sections below that describe
+> Ollama-only VLM or the Docker path are historical / Spark-only.
+
 Develop on the **DGX Spark** with a **single DeepStream 9 container** running
 all RTSP streams through one batched `nvstreammux` → `nvinfer` pipeline.
 Deploy the same Python code on **Jetson Thor** at the edge — but natively,
@@ -63,7 +72,7 @@ RTSP cam 3 ──> nvurisrcbin src2 ──┤         │
 RTSP cam 4 ──> nvurisrcbin src3 ──┘         v
                                     nvinfer (TrafficCamNet)
                                             │
-                              probe → VLM queue → Ollama (Spark)
+            probe → VLM queue → vLLM (gx10), fallback Ollama (Spark)
                                             │
                                     ChromaDB + query_server
 ```
@@ -89,14 +98,14 @@ ollama pull nomic-embed-text
 *(Spark/Docker path — on Thor, use "Native Thor runbook" below instead.)*
 
 ```bash
-git clone -b multi-stream https://github.com/schlafly1/camera-pipe1.git
+git clone https://github.com/schlafly1/camera-pipe1.git   # main branch
 cd camera-pipe1
 ```
 
 You do **not** need to copy anything from the Windows `C:\sd\thor` folder except
 your real **`.env`** (camera URLs and secrets) if you already have one on Thor.
 
-| On GitHub (`multi-stream` branch) | Not on GitHub — copy manually if needed |
+| On GitHub (`main` branch) | Not on GitHub — copy manually if needed |
 |-----------------------------------|----------------------------------------|
 | All code, Docker, docs | `.env` (from Thor; never committed) |
 | `env.example` template | `chroma_data/` (optional; starts empty) |
@@ -109,7 +118,7 @@ your real **`.env`** (camera URLs and secrets) if you already have one on Thor.
 
 ```bash
 # 1. Clone
-git clone -b multi-stream https://github.com/schlafly1/camera-pipe1.git
+git clone https://github.com/schlafly1/camera-pipe1.git   # main branch
 cd camera-pipe1
 
 # 2. Environment — copy from Thor or start from template
@@ -208,7 +217,7 @@ API: `curl "http://localhost:8001/query?text=person"`
 
 Most IP cameras (Reolink, Dahua, etc.) are much more reliable over TCP than UDP when running inside the DeepStream container.
 
-- The repo now defaults to forcing TCP (`RTSP_TRANSPORT_CAMn=4`).
+- TCP is opt-in: set `RTSP_TRANSPORT_CAMn=4` (code default is `0`; Thor's `.env` currently sets none).
 - Additional stability properties (latency, retransmit, drop-on-latency) are applied for TCP sources.
 - JPEG frames for the VLM are now captured on per-camera branches (`/tmp/frame_camN_*.jpg`) instead of a single global post-batch stream. This greatly reduces the chance of the VLM seeing the wrong scene or "no fresh frame" errors.
 
@@ -241,7 +250,7 @@ Search UI: http://localhost:8001
 | `HEADLESS` | `1` | Legacy alias: `0` also enables display |
 | `TILER_W` / `TILER_H` | `1280` / `720` | Live window size |
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Spark Ollama; Thor points at Spark IP |
-| `VLM_MODEL` | `gemma4:26b` | |
+| `VLM_MODEL` | `gemma4:26b` | Ollama model; live `gemma4:12b`, used as the fallback when `VLM_BACKEND=vllm`. For `VLM_BACKEND`, `VLLM_*`, `OLLAMA_THINK`, `DROP_CLASSES_CAMn` etc. see readme.md → Configuration. |
 | `SAVE_INTERVAL` | `30.0` | Min seconds between saves per class per camera (only applies to office cams). Raise if VLM can't keep up (see monitor.py). |
 | `VLM_QUEUE_MAX` | `12` | Shared queue across all cameras |
 | `MAX_EVENT_AGE_S` | `300.0` | How long an event may sit in the VLM queue before being dropped as stale. Sized for the Thor/Spark split, where a slow remote VLM (measured p95 60-150s, see `eval_vlm_results.json`) shouldn't cost a dropped detection — Thor's capture+detect never blocks on this. Lower it back toward the old 30s if running the VLM locally instead. |
@@ -304,7 +313,7 @@ needs to resolve, not a guarantee the native install uses identical paths.
 
 ### 1. Clone + config
 
-Same as Spark's "Full setup" steps: clone the `multi-stream` branch, copy
+Same as Spark's "Full setup" steps: clone `main`, copy
 your real `.env` over, `mkdir -p chroma_data snapshots stats`. Confirm Thor
 can actually reach the camera LAN (`RTSP_URL_CAM*` addresses) before
 assuming it's on the same network as Spark.
@@ -323,6 +332,10 @@ detections/hour). That's what `MAX_EVENT_AGE_S=300` (see env var table
 above) is sized for — don't leave it at the old 30s default here, or nearly
 every event gets dropped as stale before the VLM ever sees it.
 
+(Historical: this was the Ollama-only config. The live `.env` also sets
+`VLM_BACKEND=vllm` + `VLLM_URL=http://gx10-2ea8:8000`; see readme.md →
+Configuration.)
+
 ```env
 OLLAMA_HOST=http://<spark-lan-ip>:11434
 FRAME_W=1280
@@ -338,9 +351,10 @@ python3 query_server.py            # second shell
 python3 monitor.py                 # third shell (or from a separate login)
 ```
 
-No `docker exec`, no compose lifecycle — use `tmux`/`screen` or a systemd
-unit per script to keep them running across a disconnect, and just re-run
-the same commands to restart.
+No `docker exec`, no compose lifecycle. In practice use `./start_thor.sh
+[--no-monitor]` / `./stop_thor.sh`; start-at-boot is the systemd user unit
+`deploy/camera-pipe1.service` → `boot_thor.sh` (see readme.md → Start, stop,
+boot). Re-running `start_thor.sh` is the restart.
 
 Expect a fresh TensorRT engine build on first run (~5 min) — engines are
 architecture-specific and don't carry over from Spark's GB10. It's a plain
@@ -371,10 +385,10 @@ That's a `deepstream-profile-pipeline`-skill question (batch size, stream
 count vs. GPU headroom) — measure with `monitor.py` before assuming Thor can
 just absorb more feeds.
 
-### 6. Multiple VLM workers / models on Spark (future)
+### 6. Multiple VLM workers / models
 
-`pipeline_multi.py` currently runs a single `vlm_worker` thread, so VLM
-calls are serial. The `queue.Queue` is already thread-safe, so running
+`pipeline_multi.py` now runs `VLM_WORKERS` (default 2) `vlm_worker`
+threads sharing one queue (Spark Ollama runs `OLLAMA_NUM_PARALLEL=2`). The `queue.Queue` is already thread-safe, so running
 several worker threads (or splitting by camera/class across models, e.g. one
 model for people, another for vehicles) is a small change — but confirm
 Spark can hold more than one model resident at once (unified memory size)
@@ -388,14 +402,14 @@ DeepStream and stays Spark-only for now — a heavier, separate component.
 Revisit (including whether vLLM is even practical natively on Thor) only
 once the base pipeline is proven stable there.
 
-### 8. gx10 vLLM container (eval backend for the 12B cutover, not live yet)
+### 8. gx10 vLLM container (live primary VLM since 2026-09-25)
 
 A standing vLLM container on gx10 (hostname `gx10-2ea8`) serves
-`google/gemma-4-12B-it` on `:8000` for the eval/cutover work in
-`eval_vlm_models.py` and `notes/vllm_cutover_design.md`. **Live Thor capture
-still uses Spark Ollama `gemma4:12b`** (`pipeline_multi.py`'s `ollama.chat`
-call) ? this container is eval-only until `VLM_BACKEND=vllm` actually ships
-and gets flipped; see `notes/vllm_cutover_design.md` for that plan.
+`google/gemma-4-12B-it` on `:8000`. Since 2026-09-25 it is the **live**
+VLM for Thor capture (`.env`: `VLM_BACKEND=vllm`,
+`VLLM_URL=http://gx10-2ea8:8000`), with per-event fallback to Spark Ollama
+`gemma4:12b`; see `notes/vllm_cutover_applied.md`. It is also the vLLM
+backend for `eval_vlm_models.py`. (Before 2026-09-25 it was eval-only.)
 
 Current live container (confirmed via `docker inspect` 2026-09-16 ? recreated
 ~2026-09-14 with `--restart unless-stopped` so it survives a gx10 reboot):

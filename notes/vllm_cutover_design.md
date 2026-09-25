@@ -1,5 +1,13 @@
 # vLLM cutover design — VLM_BACKEND switch with Ollama fallback
 
+> **Superseded (2026-09-25):** applied, with changes, in commit 9302022 — see
+> [vllm_cutover_applied.md](vllm_cutover_applied.md) for what is live
+> (VLLM_TIMEOUT_S=20, explicit enable_thinking=false, OLLAMA_THINK=false,
+> Ollama client timeouts, etc.). Kept below as the original design record.
+> Correction: the live ChromaDB is the Thor-local Docker container on
+> localhost:8000, not on Spark (the "Thor -> Spark ChromaDB" path in §6 is
+> wrong).
+
 **Date:** 2026-09-16. Design only — nothing in this note has been applied to the
 live tree or the running pipeline. Builds on eval_vllm_12b_n3.json (vLLM ~57x
 faster, comparable reject rate) and notes/motorcycle_rejects_eyeball.md (this
@@ -256,7 +264,7 @@ automatic per-call fallback should mostly mask even before a revert lands.
   --system-site-packages; requests is ubiquitous but hasn't been confirmed
   importable in that specific venv. Check before landing, not after.
 - New cross-host dependency. Adds Thor -> gx10-2ea8:8000 alongside the
-  existing Thor -> spark-2251:11434 (Ollama) and Thor -> Spark ChromaDB paths.
+  existing Thor -> spark-2251:11434 (Ollama) path [corrected: Chroma is Thor-local].
   If gx10's network path is flakier than Spark's, that's a new failure mode —
   bounded by VLLM_TIMEOUT_S (30s) and the health-check cache, but still a
   new thing that can go wrong that didn't exist before.
