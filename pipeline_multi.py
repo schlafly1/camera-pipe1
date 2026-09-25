@@ -24,6 +24,7 @@ import time
 
 import chromadb
 import ollama
+import requests
 from pyservicemaker import BatchMetadataOperator, Pipeline, Probe
 
 from streams_config import load_streams
@@ -47,6 +48,50 @@ VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
 # server (confirmed via Spark's ollama process: `-c 262144 -np 1`).
 VLM_NUM_CTX     = int(os.environ.get("VLM_NUM_CTX", "4096"))
 EMBED_MODEL     = "nomic-embed-text"
+
+# ── VLM backend switch (notes/vllm_cutover_design.md) ─────────────────────────
+# VLM_BACKEND=ollama (default) keeps every description call on OLLAMA_HOST.
+# VLM_BACKEND=vllm sends description calls to the OpenAI-compatible vLLM
+# server at VLLM_URL (gx10), with a cached health check and automatic per-call
+# fallback to Ollama on any error/timeout. Embeddings (EMBED_MODEL) ALWAYS stay
+# on Ollama/OLLAMA_HOST regardless of backend, so the ChromaDB vector space is
+# unchanged. Prompts and _vlm_says_absent() are backend-agnostic and unchanged.
+VLM_BACKEND        = os.environ.get("VLM_BACKEND", "ollama").strip().lower()
+VLLM_URL           = os.environ.get("VLLM_URL", "http://gx10-2ea8:8000").rstrip("/")
+VLLM_MODEL         = os.environ.get("VLLM_MODEL", "google/gemma-4-12B-it")
+VLLM_MAX_TOKENS    = int(os.environ.get("VLLM_MAX_TOKENS", "300"))
+VLLM_TIMEOUT_S     = float(os.environ.get("VLLM_TIMEOUT_S", "20"))  # eval p95 8.6s
+VLLM_HEALTHCHECK_S = float(os.environ.get("VLLM_HEALTHCHECK_S", "30"))
+# Ollama think= for thinking-capable models (gemma4). Omitting it (the old
+# behavior) leaves Gemma 4 thinking ON by default: eval_vllm_12b_n3.json shows
+# reasoning on every Ollama row, and eval_2x2_big_ollama_{think,nothink}.json
+# shows 39.0s vs 24.4s mean. "false" (default) = fast mode; "true" = think;
+# "default" = omit the parameter (pre-2026-09-25 behavior).
+_OLLAMA_THINK_RAW  = os.environ.get("OLLAMA_THINK", "false").strip().lower()
+OLLAMA_THINK       = {"false": False, "0": False, "no": False,
+                      "true": True, "1": True, "yes": True,
+                      "default": None, "": None}.get(_OLLAMA_THINK_RAW, False)
+_vllm_health = {"ok": True, "checked_at": 0.0}
+_vllm_health_lock = threading.Lock()
+# The module-level ollama client has timeout=None, so a hung Spark call would
+# block a worker forever. Explicit clients (host from OLLAMA_HOST, as before).
+OLLAMA_CHAT_TIMEOUT_S  = float(os.environ.get("OLLAMA_CHAT_TIMEOUT_S", "180"))
+OLLAMA_EMBED_TIMEOUT_S = float(os.environ.get("OLLAMA_EMBED_TIMEOUT_S", "30"))
+_ollama_chat_client  = ollama.Client(timeout=OLLAMA_CHAT_TIMEOUT_S)
+_ollama_embed_client = ollama.Client(timeout=OLLAMA_EMBED_TIMEOUT_S)
+
+# Frame selection fix (get_jpeg_after): the legacy picker lets any file newer
+# than detection+WINDOW_AFTER override an in-window pick, so a worker that
+# reaches an event >10s late always gets "now". FRAME_PICK_CLOSEST=1 picks the
+# in-window frame closest to the detection instant and only falls back to the
+# newest file when nothing is in-window. Off by default (not yet enabled live).
+FRAME_PICK_CLOSEST = os.environ.get("FRAME_PICK_CLOSEST", "0") == "1"
+
+# Optional: keep a capped copy of VLM-rejected frames for later hand labeling
+# (rejected events are otherwise never written to disk). Off by default.
+SAVE_REJECTS       = os.environ.get("SAVE_REJECTS", "0") == "1"
+REJECT_DIR         = os.environ.get("REJECT_DIR", "snapshots_rejected")
+REJECT_SAVE_MAX    = int(os.environ.get("REJECT_SAVE_MAX", "2000"))
 SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
 # Street cams still throttle per (camera, class) — shorter than office so real
 # passing traffic is captured, but a persistent detection (parked car or a
@@ -231,6 +276,7 @@ class StatsTracker:
         "detections", "low_conf", "dedup", "throttled", "queued", "drops",
         "stale_skip", "no_frame", "stale_frame_skip", "stale_frame",
         "vlm_reject", "errors", "saves",
+        "vlm_calls_vllm", "vlm_calls_ollama", "vllm_fallback", "reject_frames_saved",
     )
 
     def __init__(self, camera_id, path, cam_type="street"):
@@ -243,6 +289,8 @@ class StatsTracker:
         self._last_frame = None   # wall time of last decoded frame (liveness)
         self._frames = 0
         self._latencies = []
+        self._vlm_call_lat = []      # pure VLM round-trip seconds (last N)
+        self._vlm_backend_last = None
 
     def record_frame(self, now):
         # No lock: single float/int store per frame, torn reads are harmless.
@@ -260,12 +308,21 @@ class StatsTracker:
             if len(self._latencies) > self._LATENCY_WINDOW:
                 self._latencies.pop(0)
 
+    def record_vlm_call(self, backend, latency_s):
+        with self._lock:
+            self._vlm_call_lat.append(latency_s)
+            if len(self._vlm_call_lat) > self._LATENCY_WINDOW:
+                self._vlm_call_lat.pop(0)
+            self._vlm_backend_last = backend
+
     def write(self, queue_depth=0):
         now = time.time()
         elapsed = max(now - self._start, 1.0)
         with self._lock:
             counts = dict(self._counts)
             lats = self._latencies[:]
+            call_lats = self._vlm_call_lat[:]
+            backend_last = self._vlm_backend_last
         data = {
             "camera_id":       self._camera_id,
             "cam_type":        self._cam_type,
@@ -282,6 +339,9 @@ class StatsTracker:
             "vlm_ms_max":      round(max(lats) * 1000) if lats else None,
             "vlm_ms_last":     round(lats[-1] * 1000) if lats else None,
             "queue_depth":     queue_depth,
+            "vlm_call_ms_avg": round(sum(call_lats) / len(call_lats) * 1000) if call_lats else None,
+            "vlm_call_ms_max": round(max(call_lats) * 1000) if call_lats else None,
+            "vlm_backend_last": backend_last,
         }
         for k in self._COUNTER_KEYS:
             data[f"{k}_total"] = counts[k]
@@ -336,8 +396,42 @@ class ObjectDetector(BatchMetadataOperator):
         self._stats = stats_registry
         self._streams = streams
         self._last_save = {}
-        self._event_ids = {}
+        self._event_ids = self._seed_event_ids()
+        if self._event_ids:
+            log.info(f"[Detect] event ids continue after snapshots/ max: {self._event_ids}")
         self._track_seen = {}   # (camera_id, track_id) -> {count, emitted, last}
+        # Per-camera class drops (DROP_CLASSES_CAMn in .env, see
+        # streams_config.py) — e.g. RT-DETR class 3 "Bicycle" on the office
+        # cams, where it fires on empty rooms (notes/motorcycle_rejects_eyeball.md).
+        # Dropped classes are treated as if not in DETECT_CLASSES for that
+        # camera: not counted, not deduped, not queued.
+        self._drop_classes = {
+            s["camera_id"]: frozenset(s.get("drop_classes", ())) for s in streams
+        }
+        for cam, cls_set in sorted(self._drop_classes.items()):
+            if cls_set:
+                names = ", ".join(f"{c}={DETECT_CLASSES.get(c, '?')}" for c in sorted(cls_set))
+                log.info(f"[Detect] cam{cam}: dropping classes {names}")
+
+    @staticmethod
+    def _seed_event_ids():
+        """Start each camera's event counter past the highest evt already in
+        snapshots/, so a restart can't reuse cam{N}_src{S}_{label}_evt{K}
+        (which overwrote old snapshot JPEGs while ChromaDB kept the old
+        description for the duplicate id)."""
+        import re
+        pat = re.compile(r"^cam(\d+)_src\d+_[a-zA-Z]+_evt(\d+)\.jpg$")
+        seeds = {}
+        try:
+            for name in os.listdir(SNAPSHOT_DIR):
+                m = pat.match(name)
+                if m:
+                    cam, evt = int(m.group(1)), int(m.group(2))
+                    if evt > seeds.get(cam, 0):
+                        seeds[cam] = evt
+        except OSError:
+            pass
+        return seeds
 
     def _next_event_id(self, camera_id):
         n = self._event_ids.get(camera_id, 0) + 1
@@ -368,9 +462,10 @@ class ObjectDetector(BatchMetadataOperator):
                     is_office = s.get("is_office", False)
                     break
 
+            drop_classes = self._drop_classes.get(camera_id, ())
             for obj_meta in frame_meta.object_items:
                 cls = obj_meta.class_id
-                if cls not in DETECT_CLASSES:
+                if cls not in DETECT_CLASSES or cls in drop_classes:
                     continue
                 stats.bump("detections")
                 if obj_meta.confidence < DETECT_MIN_CONF[cls]:
@@ -491,6 +586,10 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
     else:
         patterns = [JPEG_GLOB]
 
+    if FRAME_PICK_CLOSEST:
+        return _get_jpeg_closest(after_time, camera_id, patterns, deadline,
+                                 WINDOW_BEFORE, WINDOW_AFTER)
+
     best_path = None
     best_mtime = -1
     best_is_stale = False
@@ -527,6 +626,42 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
     if not best_path:
         return None, False, None
 
+    return _read_jpeg_copy(best_path, best_mtime, best_is_stale, after_time, camera_id)
+
+
+def _get_jpeg_closest(after_time, camera_id, patterns, deadline,
+                      window_before, window_after):
+    """FRAME_PICK_CLOSEST=1 picker: in-window file closest to after_time;
+    newest file for the camera only if nothing is in-window."""
+    while True:
+        in_path, in_mtime, in_gap = None, None, None
+        new_path, new_mtime = None, -1
+        for pat in patterns:
+            try:
+                files = glob.glob(pat)
+            except Exception:
+                files = []
+            for f in files:
+                try:
+                    m = os.path.getmtime(f)
+                except OSError:
+                    continue
+                if (after_time - window_before) <= m <= (after_time + window_after):
+                    g = abs(m - after_time)
+                    if in_gap is None or g < in_gap:
+                        in_path, in_mtime, in_gap = f, m, g
+                elif camera_id is not None and m > new_mtime:
+                    new_path, new_mtime = f, m
+        if in_path:
+            return _read_jpeg_copy(in_path, in_mtime, False, after_time, camera_id)
+        if new_path:
+            return _read_jpeg_copy(new_path, new_mtime, True, after_time, camera_id)
+        if time.time() >= deadline:
+            return None, False, None
+        time.sleep(0.1)
+
+
+def _read_jpeg_copy(best_path, best_mtime, best_is_stale, after_time, camera_id):
     gap_s = abs(best_mtime - after_time)
 
     # Immediately copy to a safe temp file so multifilesink can't delete it
@@ -558,12 +693,160 @@ def get_jpeg_after(after_time, camera_id=None, timeout=5.0):
     return None, False, None
 
 
+def _vllm_is_healthy():
+    """Cached vLLM reachability check: at most one real HTTP round trip per
+    VLLM_HEALTHCHECK_S, shared by all VLM_WORKERS threads."""
+    now = time.time()
+    with _vllm_health_lock:
+        if now - _vllm_health["checked_at"] < VLLM_HEALTHCHECK_S:
+            return _vllm_health["ok"]
+        # Claim this window so concurrent workers don't all probe at once.
+        _vllm_health["checked_at"] = now
+    try:
+        r = requests.get(f"{VLLM_URL}/v1/models", timeout=3)
+        ok = r.ok and VLLM_MODEL in r.text
+    except requests.RequestException:
+        ok = False
+    with _vllm_health_lock:
+        was_ok = _vllm_health["ok"]
+        _vllm_health["ok"] = ok
+    if ok != was_ok:
+        log.info(f"[VLM] vLLM health changed: {'UP' if ok else 'DOWN'} ({VLLM_URL})")
+    return ok
+
+
+def _vllm_mark_unhealthy():
+    with _vllm_health_lock:
+        _vllm_health["ok"] = False
+        _vllm_health["checked_at"] = time.time()
+
+
+def _vlm_chat_ollama(prompt, jpeg_b64):
+    kwargs = {}
+    if OLLAMA_THINK is not None:
+        kwargs["think"] = OLLAMA_THINK
+    resp = _ollama_chat_client.chat(
+        model=VLM_MODEL,
+        messages=[{
+            "role": "user",
+            "content": prompt,
+            "images": [jpeg_b64],
+        }],
+        options={"num_ctx": VLM_NUM_CTX},
+        **kwargs,
+    )
+    return resp["message"]["content"].strip()
+
+
+def _vlm_chat_vllm(prompt, jpeg_b64):
+    payload = {
+        "model": VLLM_MODEL,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{jpeg_b64}"}},
+            ],
+        }],
+        "max_tokens": VLLM_MAX_TOKENS,
+        # Thinking is already off in the gx10 container's template; set it
+        # explicitly too so a server-side default change can't turn it on.
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    r = requests.post(f"{VLLM_URL}/v1/chat/completions", json=payload,
+                      timeout=VLLM_TIMEOUT_S)
+    r.raise_for_status()
+    content = r.json()["choices"][0]["message"]["content"]
+    if not content or not content.strip():
+        raise ValueError("vLLM returned empty content")
+    head = content.lstrip()[:20].lower()
+    if head.startswith("thought") or head.startswith("<|channel") or head.startswith("<think"):
+        # Reasoning leaked into content (no --reasoning-parser on gx10);
+        # _vlm_says_absent would scan it and false-reject. Fall back instead.
+        raise ValueError("vLLM content looks like leaked reasoning")
+    return content.strip()
+
+
+def _vlm_describe(prompt, jpeg_b64, stats=None):
+    """Return (description, backend_used). VLM_BACKEND=ollama never touches
+    vLLM. VLM_BACKEND=vllm falls back to Ollama for this call if vLLM is
+    marked unhealthy or the call raises (timeout, refused, 5xx, bad JSON)."""
+    if VLM_BACKEND == "vllm":
+        if _vllm_is_healthy():
+            try:
+                desc = _vlm_chat_vllm(prompt, jpeg_b64)
+                if stats is not None:
+                    stats.bump("vlm_calls_vllm")
+                return desc, "vllm"
+            except Exception as e:
+                _vllm_mark_unhealthy()
+                log.info(f"[VLM] vLLM call failed ({type(e).__name__}: {e}); falling back to Ollama")
+                if stats is not None:
+                    stats.bump("vllm_fallback")
+        elif stats is not None:
+            stats.bump("vllm_fallback")
+    desc = _vlm_chat_ollama(prompt, jpeg_b64)
+    if stats is not None:
+        stats.bump("vlm_calls_ollama")
+    return desc, "ollama"
+
+
+def _save_reject_frame(jpeg_bytes, det, description, backend,
+                       jpeg_is_stale=None, jpeg_gap_s=None):
+    """SAVE_REJECTS=1: keep the rejected frame + a JSON sidecar for later
+    labeling, capped at REJECT_SAVE_MAX frames (oldest deleted first).
+    Never raises — this must not affect the worker."""
+    try:
+        os.makedirs(REJECT_DIR, exist_ok=True)
+        ts = datetime.datetime.now(tz=LOCAL_TZ).strftime("%Y%m%d-%H%M%S")
+        base = (f"{ts}_cam{det['camera_id']}_{det['label']}_evt{det['event_id']}")
+        with open(os.path.join(REJECT_DIR, base + ".jpg"), "wb") as fh:
+            fh.write(jpeg_bytes)
+        with open(os.path.join(REJECT_DIR, base + ".json"), "w") as fh:
+            json.dump({
+                "camera_id": det["camera_id"], "label": det["label"],
+                "class_id": det["class_id"], "confidence": det["confidence"],
+                "event_id": det["event_id"], "wall_time": det["wall_time"],
+                "backend": backend,
+                "model": VLLM_MODEL if backend == "vllm" else VLM_MODEL,
+                "jpeg_is_stale": jpeg_is_stale,
+                "jpeg_gap_s": None if jpeg_gap_s is None else round(jpeg_gap_s, 2),
+                "description": description,
+            }, fh)
+        jpgs = sorted(f for f in os.listdir(REJECT_DIR) if f.endswith(".jpg"))
+        for old in jpgs[:max(0, len(jpgs) - REJECT_SAVE_MAX)]:
+            for ext in (".jpg", ".json"):
+                try:
+                    os.unlink(os.path.join(REJECT_DIR, old[:-4] + ext))
+                except OSError:
+                    pass
+        return True
+    except Exception as e:
+        log.info(f"[VLM] could not save reject frame: {e}")
+        return False
+
+
 def vlm_worker(event_queue, stats_registry):
     import base64
 
-    client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
-    collection = client.get_or_create_collection(COLLECTION)
-    log.info(f"[VLM Worker] Ready (model={VLM_MODEL})")
+    # Retry: at boot Chroma may not be accepting connections yet, and an
+    # exception here would silently kill this worker thread.
+    while True:
+        try:
+            client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
+            collection = client.get_or_create_collection(COLLECTION)
+            break
+        except Exception as e:
+            log.info(f"[VLM Worker] ChromaDB not ready ({e}); retrying in 5s")
+            time.sleep(5)
+    if VLM_BACKEND == "vllm":
+        log.info(
+            f"[VLM Worker] Ready (backend=vllm model={VLLM_MODEL} url={VLLM_URL}; "
+            f"fallback=ollama model={VLM_MODEL} think={OLLAMA_THINK})"
+        )
+    else:
+        log.info(f"[VLM Worker] Ready (model={VLM_MODEL} think={OLLAMA_THINK})")
 
     while True:
         det = event_queue.get()
@@ -621,16 +904,9 @@ def vlm_worker(event_queue, stats_registry):
             prompt = VLM_PROMPTS.get(
                 det["class_id"], "Describe what you see in one sentence."
             )
-            resp = ollama.chat(
-                model=VLM_MODEL,
-                messages=[{
-                    "role": "user",
-                    "content": prompt,
-                    "images": [jpeg_b64],
-                }],
-                options={"num_ctx": VLM_NUM_CTX},
-            )
-            description = resp["message"]["content"].strip()
+            t_vlm = time.time()
+            description, backend = _vlm_describe(prompt, jpeg_b64, stats)
+            stats.record_vlm_call(backend, time.time() - t_vlm)
 
             # Second-stage verification: if the VLM says the object isn't
             # there, it's a detector false positive — drop it (don't embed
@@ -638,9 +914,13 @@ def vlm_worker(event_queue, stats_registry):
             if _vlm_says_absent(description, det["class_id"]):
                 log.info(
                     f"[VLM] cam{camera_id} evt={det['event_id']} REJECT "
-                    f"{det['label']} (VLM sees none): {description[:70]}"
+                    f"{det['label']} (VLM sees none): {description[:70]} [{backend}]"
                 )
                 stats.bump("vlm_reject")
+                if SAVE_REJECTS and _save_reject_frame(
+                        jpeg_bytes, det, description, backend,
+                        jpeg_is_stale, jpeg_gap_s):
+                    stats.bump("reject_frames_saved")
                 continue
 
             log.info(
@@ -648,7 +928,7 @@ def vlm_worker(event_queue, stats_registry):
                 f"{det['label']}: {description}"
             )
 
-            embed_resp = ollama.embeddings(model=EMBED_MODEL, prompt=description)
+            embed_resp = _ollama_embed_client.embeddings(model=EMBED_MODEL, prompt=description)
             embedding = embed_resp["embedding"]
 
             doc_id = (
@@ -674,6 +954,8 @@ def vlm_worker(event_queue, stats_registry):
                     "label":        det["label"],
                     "confidence":   det["confidence"],
                     "image_path":   f"/snapshots/{snap_name}",
+                    "vlm_backend":  backend,
+                    "vlm_model":    VLLM_MODEL if backend == "vllm" else VLM_MODEL,
                 }],
                 ids=[doc_id],
             )
