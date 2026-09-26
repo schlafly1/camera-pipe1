@@ -17,6 +17,7 @@ import logging
 import logging.handlers
 import os
 import queue
+import re
 import shutil
 import tempfile
 import threading
@@ -27,7 +28,7 @@ import ollama
 import requests
 from pyservicemaker import BatchMetadataOperator, Pipeline, Probe
 
-from streams_config import load_streams
+from streams_config import load_streams, person_min_conf
 
 try:
     from zoneinfo import ZoneInfo
@@ -218,11 +219,92 @@ _VLM_REFUSAL = (
     "unable to", "cannot find any", "don't see any", "do not see any",
     "doesn't appear to be", "does not appear to be", "no discernible",
 )
-_VLM_ABSENT_SUBJECT = {
-    0: ("no vehicle", "no vehicles", "no car", "no cars", "not a vehicle"),
-    2: ("no person", "no people", "no individual", "no humans", "no pedestrian"),
-    3: ("no motorcycle", "no motorcycles", "no bicycle", "no bicycles",
-        "no bike", "no bikes", "no scooter"),
+
+
+# Subject nouns per class for the structural negation patterns below. Riders
+# and passengers are deliberately NOT class-3 nouns: "a parked motorcycle with
+# no rider" still has a motorcycle in it.
+_VLM_SUBJECT_NOUNS = {
+    0: ("vehicles?", "cars?", "trucks?", "vans?", "suvs?", "automobiles?"),
+    2: ("people", "persons?", "humans?", "individuals?", "pedestrians?",
+        "anyone", "anybody", "someone", "somebody", r"human\s+figures?"),
+    3: ("motorcycles?", "motorbikes?", "bicycles?", "bikes?", "scooters?"),
+}
+# Optional qualifier between the negation and the noun ("no clearly visible people").
+_NEG_ADJ = (r"(?:(?:clearly |readily |easily |actually )?(?:visible|identifiable|"
+            r"discernible|recognizable|detectable|distinguishable|actual|real|"
+            r"human|living) )?")
+# A trailing exclusion means the subject IS there: "no one else", "no people
+# other than the cyclist", "no pedestrians, except the man", "no one but the
+# guard". A comma + "but" is NOT an exclusion: "no people, but a bench".
+_NEG_EXCEPT = (r"(?![\s,]+(?:else|other than|besides|except|apart from|aside from)\b)"
+               r"(?!\s+but\s+(?:him|her|them|the|a|an|one)\b)")
+# Where a bare "no <subject>" really means absence: sentence start, "there
+# is/are no ...", "the image shows/contains no ...", "the path is empty, with
+# no pedestrians". Mid-sentence "a man walks down the street with no people
+# around him" is not a rejection.
+_NEG_CTX = (r"(?:^|[.;:!?]\s+|\bthere (?:is|are|was|were|appears? to be|"
+            r"seems? to be) |\b(?:contains?|containing|shows?|showing|depicts?|"
+            r"features?|includes?|reveals?|displays?|captures?|has|have|see|"
+            r"sees) |\b(?:is|are|was|were|appears?|seems?) (?:completely |entirely |"
+            r"otherwise )?empty\b[^.]*?\bwith )")
+# "no <subject> (is) visible/present" anywhere: "... as no identifiable
+# individual is visible", "an empty room with no people present".
+_NEG_SEEN = (r" (?:(?:is|are|was|were|can be|could be) (?:clearly |readily )?)?"
+             r"(?:visible|present|seen|shown|detected|discernible|identifiable|"
+             r"in sight|in (?:the|this) (?:image|frame|scene|picture|photo))\b")
+
+
+def _build_absent_rx(class_id):
+    nouns = "|".join(_VLM_SUBJECT_NOUNS[class_id])
+    # Not a possessive: "the person's face is not visible" is a real person.
+    n = r"(?:%s)\b(?!'s\b)%s" % (nouns, _NEG_EXCEPT)
+    art = r"(?:any |a |an )?"   # not "the": "does not show the person clearly"
+    pats = [
+        # "does not contain any people", "doesn't show a person",
+        # "does not appear to contain any humans"
+        r"\b(?:does|do|did)(?: not|n't) (?:(?:appear|seem) to )?(?:contain|show|"
+        r"include|depict|feature|have|display|capture) " + art + _NEG_ADJ + n,
+        # "No people are in the frame", "there are no humans", "the image shows
+        # no visible person", "no sign of any pedestrians" (not "no other people")
+        _NEG_CTX + r"no (?:signs? of |traces? of )?(?:any )?" + _NEG_ADJ + n,
+        r"\bno " + _NEG_ADJ + n + _NEG_SEEN,
+        # "there aren't any people", "there is not a person"
+        r"\bthere (?:is|are|was|were)(?: not|n't) " + art + _NEG_ADJ + n,
+        # "cannot see any person", "can't see anyone", "unable to identify a
+        # person", "could not find any people", "I don't see a person"
+        r"\b(?:cannot|can not|can't|could not|couldn't|unable to|do not|don't|"
+        r"did not|didn't) (?:see|find|identify|detect|locate|spot|make out|"
+        r"discern) " + art + _NEG_ADJ + n,
+        # "it is impossible to describe a person because the scene is blurry"
+        # (not "impossible to determine the person's age")
+        r"\b(?:impossible|not possible) to (?:describe|identify|see|find|detect|"
+        r"locate) " + art + _NEG_ADJ + n,
+        # Clause-initial "A person is not visible", "People are not present"
+        # (not "the face of the person is not visible", not "not clearly visible")
+        r"(?:^|[.;:!?]\s+)(?:the |a |an )?(?:%s) (?:is|are|was|were) not "
+        r"(?:actually )?(?:visible|present|shown|in (?:the|this) (?:image|frame|"
+        r"scene|picture|photo))\b" % nouns,
+    ]
+    if class_id == 0:
+        pats.append(r"\bnot a vehicle\b")
+    if class_id == 2:
+        # "Nobody is present", "there is no one", "the image shows nobody"
+        # (not "no one else").
+        pats.append(_NEG_CTX + r"(?:nobody|no one|no-one)\b" + _NEG_EXCEPT)
+        pats.append(r"\b(?:nobody|no one|no-one)" + _NEG_SEEN)
+    return re.compile("|".join("(?:%s)" % p for p in pats))
+
+
+_VLM_ABSENT_RX = {cls: _build_absent_rx(cls) for cls in _VLM_SUBJECT_NOUNS}
+# An explicit sighting overrides a hedged negation elsewhere in the reply:
+# "there is no clearly visible person to describe. A person is partially
+# visible in the foreground, sitting in a chair ..." (seen on cam2).
+_VLM_PRESENT_RX = {
+    2: re.compile(
+        r"\b(?:a|one|the) (?:person|man|woman|individual|figure|pedestrian|"
+        r"child|boy|girl) (?:is|can be) (?:partially |partly |faintly |barely |"
+        r"dimly |only |just |clearly )?(?:visible|seen)\b"),
 }
 
 
@@ -230,13 +312,21 @@ def _vlm_says_absent(description, class_id):
     """True if the VLM's reply indicates the detected object isn't present.
 
     Deliberately narrow: matches explicit refusals and subject-specific
-    negations ("no vehicles") but NOT incidental negations that appear in
-    valid descriptions ("no visible damage", "no passenger", "no backpack").
+    negations ("no vehicles", "does not contain any people", "nobody",
+    "cannot see any person", "the person is not visible") but NOT incidental
+    negations that appear in valid descriptions ("no visible damage", "no
+    passenger", "no backpack", "the person's face is not visible") or
+    exclusions that imply the subject IS there ("no other people besides the
+    man", "no one else"). Offline test: tools/test_vlm_absent.py.
     """
-    d = description.lower()
+    d = re.sub(r"\s+", " ", description.lower().replace("\u2019", "'"))
     if any(m in d for m in _VLM_REFUSAL):
         return True
-    return any(s in d for s in _VLM_ABSENT_SUBJECT.get(class_id, ()))
+    rx = _VLM_ABSENT_RX.get(class_id)
+    if not (rx and rx.search(d)):
+        return False
+    pos = _VLM_PRESENT_RX.get(class_id)
+    return not (pos and pos.search(d))
 
 
 def camera_id_for_source(source_id, streams):
@@ -253,7 +343,7 @@ class StatsTracker:
 
     The funnel, in order (each stage counts events that STOPPED there):
       detections  objects of an interesting class seen by the PGIE
-      low_conf    rejected by DETECT_MIN_CONF
+      low_conf    rejected by DETECT_MIN_CONF (or MIN_CONF_PERSON_CAMn)
       dedup       suppressed by tracker-id dedup (already emitted / probation)
       throttled   suppressed by the (camera, class) save-interval throttle
       queued      handed to the VLM worker
@@ -412,6 +502,22 @@ class ObjectDetector(BatchMetadataOperator):
             if cls_set:
                 names = ", ".join(f"{c}={DETECT_CLASSES.get(c, '?')}" for c in sorted(cls_set))
                 log.info(f"[Detect] cam{cam}: dropping classes {names}")
+        # Per-camera person gate (MIN_CONF_PERSON_CAMn, optionally limited to
+        # MIN_CONF_PERSON_HOURS_CAMn local time) — e.g. cam6's night-IR false
+        # positives. Only ever raises DETECT_MIN_CONF[2]; unset = unchanged.
+        self._person_gate = {
+            s["camera_id"]: (s["min_conf_person"], s.get("min_conf_person_hours"))
+            for s in streams if s.get("min_conf_person") is not None
+        }
+        for cam, (conf, hours) in sorted(self._person_gate.items()):
+            when = ("all day" if hours is None else
+                    "%02d:%02d-%02d:%02d local" % (hours[0] // 60, hours[0] % 60,
+                                                   hours[1] // 60, hours[1] % 60))
+            log.info(f"[Detect] cam{cam}: person min conf {conf:.2f} ({when})")
+        if (any(h is not None for _, h in self._person_gate.values())
+                and getattr(LOCAL_TZ, "key", None) is None):
+            log.warning("[Detect] zoneinfo unavailable: MIN_CONF_PERSON_HOURS "
+                        "windows use fixed UTC-7 (an hour off in winter)")
 
     @staticmethod
     def _seed_event_ids():
@@ -447,6 +553,10 @@ class ObjectDetector(BatchMetadataOperator):
                      if now - v["last"] > TRACK_TTL]
             for k in stale:
                 del self._track_seen[k]
+        minute_of_day = None
+        if self._person_gate:
+            lt = datetime.datetime.now(tz=LOCAL_TZ)
+            minute_of_day = lt.hour * 60 + lt.minute
         for frame_meta in batch_meta.frame_items:
             source_id = frame_meta.source_id
             camera_id = camera_id_for_source(source_id, self._streams)
@@ -463,12 +573,15 @@ class ObjectDetector(BatchMetadataOperator):
                     break
 
             drop_classes = self._drop_classes.get(camera_id, ())
+            person_min = person_min_conf(
+                DETECT_MIN_CONF[2], self._person_gate.get(camera_id), minute_of_day)
             for obj_meta in frame_meta.object_items:
                 cls = obj_meta.class_id
                 if cls not in DETECT_CLASSES or cls in drop_classes:
                     continue
                 stats.bump("detections")
-                if obj_meta.confidence < DETECT_MIN_CONF[cls]:
+                min_conf = person_min if cls == 2 else DETECT_MIN_CONF[cls]
+                if obj_meta.confidence < min_conf:
                     stats.bump("low_conf")
                     continue
 

@@ -148,6 +148,8 @@ The embedding model is fixed in code (`EMBED_MODEL = "nomic-embed-text"`).
 | `RTSP_TRANSPORT_CAMn` (or global `RTSP_TRANSPORT`) | `0` | unset | `4` forces TCP |
 | `CAM_TYPE_CAMn` | `street` | cam1–2 `office`, cam3–6 `street` | Office: `SAVE_INTERVAL` throttle, dropped when the queue is full |
 | `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `3` | Comma list of detector class ids ignored on that camera (before any counting) |
+| `MIN_CONF_PERSON_CAMn` | unset (gate stays `DETECT_MIN_CONF[2]` = 0.40) | cam6 = `0.60` | Per-camera person confidence gate; only ever raises the 0.40 gate. Blocked detections count as `lowconf` in the monitor funnel. Invalid value = gate off (warning in `pipeline-console.log`) |
+| `MIN_CONF_PERSON_HOURS_CAMn` | unset (all day) | cam6 = `19:15-06:45` | Local-time `HH:MM-HH:MM` window (may wrap midnight; start inclusive, end exclusive) during which `MIN_CONF_PERSON_CAMn` applies. Invalid window = gate off. Fixed clock times: cam6's IR switch moves with sunset/DST, so widen it in winter |
 | `SAVE_INTERVAL` | `30.0` | `30.0` | Office cams: min seconds between events per class |
 | `STREET_SAVE_INTERVAL` | `8.0` | unset | Street cams: same, shorter |
 | `MIN_TRACK_HITS` | `2` | unset | Tracker hits before a track emits its one event |
@@ -160,7 +162,15 @@ Class 3 is dropped on the office cams because it fires on empty rooms
 (`notes/motorcycle_rejects_eyeball.md`). Confidence gates are hard-coded in
 `pipeline_multi.py`: `DETECT_MIN_CONF = {0: 0.50, 2: 0.40, 3: 0.40}` (car,
 person, motorcycle), on top of the detector's `pre-cluster-threshold=0.4`;
-inference runs every 5th frame (`interval=4`).
+inference runs every 5th frame (`interval=4`). `MIN_CONF_PERSON_CAMn` (+
+optional `MIN_CONF_PERSON_HOURS_CAMn`) raises the person gate per camera; cam6
+uses 0.60 at night because its IR image fires ~1,750 person events a night
+that the VLM rejects, with detector confidence no different from the few it
+"accepts" (which, checked by eye, showed no person either). The pipeline logs
+the active per-camera gates at startup (`[Detect] camN: person min conf ...`).
+The VLM rejection phrases (`_vlm_says_absent` in `pipeline_multi.py`) are
+covered by `LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/test_vlm_absent.py`;
+the env parsing by `.venv/bin/python3 tools/test_person_gate.py`.
 
 **Queue, frames, snapshots**
 
