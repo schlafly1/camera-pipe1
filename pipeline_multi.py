@@ -49,14 +49,22 @@ VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
 # server (confirmed via Spark's ollama process: `-c 262144 -np 1`).
 VLM_NUM_CTX     = int(os.environ.get("VLM_NUM_CTX", "4096"))
 EMBED_MODEL     = "nomic-embed-text"
+# Embedding host. Defaults to OLLAMA_HOST (and then the ollama client's own
+# default), so nothing changes when it is unset. Set EMBED_HOST to serve
+# embeddings from a different Ollama than the VLM fallback (live: gx10, while
+# the gemma4 fallback stays on Spark). The target MUST serve the identical
+# nomic-embed-text weights (same digest), or new vectors won't be comparable
+# with the ones already stored in ChromaDB.
+EMBED_HOST      = (os.environ.get("EMBED_HOST") or os.environ.get("OLLAMA_HOST") or "").strip() or None
 
 # ── VLM backend switch (notes/vllm_cutover_design.md) ─────────────────────────
 # VLM_BACKEND=ollama (default) keeps every description call on OLLAMA_HOST.
 # VLM_BACKEND=vllm sends description calls to the OpenAI-compatible vLLM
 # server at VLLM_URL (gx10), with a cached health check and automatic per-call
 # fallback to Ollama on any error/timeout. Embeddings (EMBED_MODEL) ALWAYS stay
-# on Ollama/OLLAMA_HOST regardless of backend, so the ChromaDB vector space is
-# unchanged. Prompts and _vlm_says_absent() are backend-agnostic and unchanged.
+# on Ollama (EMBED_HOST, default OLLAMA_HOST) regardless of backend, so the
+# ChromaDB vector space is unchanged. Prompts and
+# _vlm_says_absent() are backend-agnostic and unchanged.
 VLM_BACKEND        = os.environ.get("VLM_BACKEND", "ollama").strip().lower()
 VLLM_URL           = os.environ.get("VLLM_URL", "http://gx10-2ea8:8000").rstrip("/")
 VLLM_MODEL         = os.environ.get("VLLM_MODEL", "google/gemma-4-12B-it")
@@ -75,11 +83,12 @@ OLLAMA_THINK       = {"false": False, "0": False, "no": False,
 _vllm_health = {"ok": True, "checked_at": 0.0}
 _vllm_health_lock = threading.Lock()
 # The module-level ollama client has timeout=None, so a hung Spark call would
-# block a worker forever. Explicit clients (host from OLLAMA_HOST, as before).
+# block a worker forever. Explicit clients: chat host from OLLAMA_HOST (as
+# before), embed host from EMBED_HOST (defaults to OLLAMA_HOST).
 OLLAMA_CHAT_TIMEOUT_S  = float(os.environ.get("OLLAMA_CHAT_TIMEOUT_S", "180"))
 OLLAMA_EMBED_TIMEOUT_S = float(os.environ.get("OLLAMA_EMBED_TIMEOUT_S", "30"))
 _ollama_chat_client  = ollama.Client(timeout=OLLAMA_CHAT_TIMEOUT_S)
-_ollama_embed_client = ollama.Client(timeout=OLLAMA_EMBED_TIMEOUT_S)
+_ollama_embed_client = ollama.Client(host=EMBED_HOST, timeout=OLLAMA_EMBED_TIMEOUT_S)
 
 # Frame selection fix (get_jpeg_after): the legacy picker lets any file newer
 # than detection+WINDOW_AFTER override an in-window pick, so a worker that
@@ -956,10 +965,16 @@ def vlm_worker(event_queue, stats_registry):
     if VLM_BACKEND == "vllm":
         log.info(
             f"[VLM Worker] Ready (backend=vllm model={VLLM_MODEL} url={VLLM_URL}; "
-            f"fallback=ollama model={VLM_MODEL} think={OLLAMA_THINK})"
+            f"fallback=ollama model={VLM_MODEL} think={OLLAMA_THINK} "
+            f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
+            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
         )
     else:
-        log.info(f"[VLM Worker] Ready (model={VLM_MODEL} think={OLLAMA_THINK})")
+        log.info(
+            f"[VLM Worker] Ready (model={VLM_MODEL} think={OLLAMA_THINK} "
+            f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
+            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
+        )
 
     while True:
         det = event_queue.get()

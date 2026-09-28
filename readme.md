@@ -20,7 +20,7 @@ Everything lives on the `main` branch (the old `multi-stream` branch is gone).
                          v
           VLM describe:  vLLM  google/gemma-4-12B-it, thinking off   gx10-2ea8:8000
           fallback:      Ollama gemma4:12b, OLLAMA_THINK=false        spark-2251:11434
-          embeddings:    Ollama nomic-embed-text                      spark-2251:11434
+          embeddings:    Ollama nomic-embed-text (EMBED_HOST)         gx10-2ea8:11434
                          │
                          v
           Thor: ChromaDB (Docker, :8000)  <──  query_server.py (Vision Search, :8001)
@@ -29,16 +29,21 @@ Everything lives on the `main` branch (the old `multi-stream` branch is gone).
 | Host | Runs |
 |------|------|
 | **Thor** (`thor2`) | `pipeline_multi.py` (capture + detection + VLM workers), `query_server.py` on **:8001**, `monitor.py`, and ChromaDB on **:8000** as the Docker container `camera-pipe1-chromadb-1` (image `chromadb/chroma:latest`, `restart: unless-stopped`, `./chroma_data` mounted at `/data`; created from `cam1.yml`'s `chromadb` service). |
-| **gx10** (`gx10-2ea8`, DGX Spark) | Docker `vllm-gemma4-12b` serving `google/gemma-4-12B-it` on :8000 (see SPARK_DEV.md §8). Primary VLM. |
-| **Spark** (`spark-2251`) | Ollama: `gemma4:12b` (VLM fallback) and `nomic-embed-text` (all embeddings, for both the pipeline and query_server). |
+| **gx10** (`gx10-2ea8`, DGX Spark) | Docker `vllm-gemma4-12b` serving `google/gemma-4-12B-it` on :8000 (see SPARK_DEV.md §8). Primary VLM. Also Ollama on :11434 serving `nomic-embed-text` (all embeddings, for both the pipeline and query_server; `EMBED_HOST`). |
+| **Spark** (`spark-2251`) | Ollama: `gemma4:12b` (VLM fallback only, `OLLAMA_HOST`). Still has `nomic-embed-text` (same digest) if embeddings ever need to move back. |
 
 Notes:
 - Use `gx10-2ea8` — the short name `gx10` does **not** resolve from Thor.
 - The VLM call is per event: if vLLM is unhealthy or a call fails/times out,
   that event goes to Ollama on Spark instead (no restart needed). vLLM is
   re-probed every `VLLM_HEALTHCHECK_S`.
-- Embeddings always come from Spark Ollama regardless of `VLM_BACKEND`, so the
-  ChromaDB vector space doesn't change when the VLM backend does.
+- Embeddings always come from Ollama `nomic-embed-text` at `EMBED_HOST`
+  (default: `OLLAMA_HOST`) regardless of `VLM_BACKEND`, so the ChromaDB vector
+  space doesn't change when the VLM backend does. Since 2026-09-28 that is
+  gx10's Ollama; its `nomic-embed-text` has the same digest as Spark's
+  (`0a109f422b47…`) and produced bit-identical vectors on test strings, so the
+  existing ChromaDB vectors stay valid. Any new embed host must match that
+  digest.
 - Spark also runs a leftover `camera-pipe1-chromadb-1` container; it is not the
   live store. Live Chroma is Thor-local (`localhost:8000`).
 
@@ -130,7 +135,8 @@ default" is what applies when the variable is unset; "Live" is Thor's `.env`.
 | `VLLM_TIMEOUT_S` | `20` | unset | Per call; eval p95 was 8.6s |
 | `VLLM_HEALTHCHECK_S` | `30` | unset | Min seconds between health probes; a failed call marks vLLM down immediately |
 | `VLLM_MAX_TOKENS` | `300` | unset | |
-| `OLLAMA_HOST` | `http://127.0.0.1:11434` (ollama client) | `http://spark-2251:11434` | Fallback VLM + all embeddings |
+| `OLLAMA_HOST` | `http://127.0.0.1:11434` (ollama client) | `http://spark-2251:11434` | Fallback VLM (and embeddings when `EMBED_HOST` is unset) |
+| `EMBED_HOST` | `OLLAMA_HOST` | `http://gx10-2ea8:11434` | Ollama for `nomic-embed-text` (pipeline + query_server). Must serve the same model digest |
 | `VLM_MODEL` | `gemma4:26b` | `gemma4:12b` | Ollama model for the fallback path |
 | `OLLAMA_THINK` | `false` | `false` | `false` = fast mode; `true`; `default` omits the param (gemma4 then thinks) |
 | `OLLAMA_CHAT_TIMEOUT_S` / `OLLAMA_EMBED_TIMEOUT_S` | `180` / `30` | unset | |

@@ -33,6 +33,10 @@ CHROMADB_PORT  = 8000
 COLLECTION_NAME = "vision_events"       # per-object detections (search substrate)
 SEGMENT_COLLECTION = "vision_segments"  # per-10/30s "what happened" summaries (option c)
 OLLAMA_MODEL   = "nomic-embed-text"
+# Embedding host: EMBED_HOST, else OLLAMA_HOST, else the ollama client default
+# (same resolution as pipeline_multi.py, so queries and stored events always
+# use the same embedder).
+EMBED_HOST     = (os.environ.get("EMBED_HOST") or os.environ.get("OLLAMA_HOST") or "").strip() or None
 SNAPSHOT_DIR   = "snapshots"
 SEARCH_HTML    = "search.html"
 
@@ -47,6 +51,8 @@ app.mount("/snapshots", StaticFiles(directory=SNAPSHOT_DIR), name="snapshots")
 app.mount("/hls", StaticFiles(directory="/tmp/hls", html=True), name="hls")
 
 chroma_client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
+embed_client  = ollama.Client(host=EMBED_HOST)
+print(f"[query_server] embeddings: {OLLAMA_MODEL} @ {EMBED_HOST or 'ollama default'}", flush=True)
 
 
 def parse_local_dt(s: str):
@@ -226,7 +232,7 @@ def query(
     embedding = None
     if t and search_type != "exact":
         try:
-            embedding = ollama.embeddings(model=OLLAMA_MODEL, prompt=t)["embedding"]
+            embedding = embed_client.embeddings(model=OLLAMA_MODEL, prompt=t)["embedding"]
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Ollama error: {e}")
 
