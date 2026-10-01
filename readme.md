@@ -293,6 +293,48 @@ Full reset (clears search history): `./stop_thor.sh`, `docker stop
 camera-pipe1-chromadb-1`, then `sudo rm -rf chroma_data/* && rm -rf
 snapshots/*`, `docker start camera-pipe1-chromadb-1`.
 
+## Rebuilding the search index (vision_events_v2)
+
+`tools/rebuild_index.py` rebuilds `vision_events` into a new collection
+`vision_events_v2` and never modifies the source. Before the 2026-09-30
+class-map fix the RT-DETR era (2026-08-21 onward) stored cars as "person" and
+people as "motorcycle", and some snapshots were overwritten (see above).
+
+- June entries (pre-RT-DETR, labels were correct) are copied as is (same id,
+  text and embedding; "motorcycle" is normalized to "bicycle", the original is
+  kept in `orig_label`), unless the text reads as absent/NONE by the current
+  check or the image is missing.
+- RT-DETR-era entries: skipped if the image is missing or its mtime is more
+  than 1 h after the event time (overwritten). Otherwise the fixed detector is
+  re-run offline on the snapshot (`tools/rtdetr_offline.py`, same per-cam
+  drops and gates as live), the image is re-described with vLLM using that
+  class's prompt (dropped on NONE/absent), embedded with nomic-embed-text, and
+  written with a new unique id. Metadata keeps the original timestamps, cam,
+  image_path, plus `source_doc_id`, `orig_label`, `class_source`,
+  `redetect`, `rebuilt_at`.
+- Entries saved after the fix (`class_map` set) are copied as is; new live
+  entries are picked up at the end.
+- Gentle on the live pipeline: one vLLM request at a time, pauses while any
+  live camera queue is non-empty or vLLM has waiting requests.
+- Resumable: checkpoint `logs/rebuild_index_state.jsonl` (one line per source
+  id, including skips and reasons). Log `logs/rebuild_index.log`, progress and
+  ETA in `logs/rebuild_index_status.json`. Stop with `pkill -f
+  tools/rebuild_index.py` (SIGTERM, finishes the current entry); restart with
+  the same command and it continues.
+
+Run (survives SSH):
+
+    setsid nohup nice -n 5 .venv/bin/python3 -u tools/rebuild_index.py \
+        > logs/rebuild_index.out 2>&1 < /dev/null &
+
+Test first with `--dry-run --limit 3 --no-copy` (no Chroma writes; state in
+/tmp). View the result next to the live index at
+http://thor2:8001/?collection=vision_events_v2, or run a second server:
+`QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 .venv/bin/python3
+query_server.py`. To make v2 the default later, set
+`QUERY_COLLECTION=vision_events_v2` for query_server and change `COLLECTION` in pipeline_multi.py
+(new live events keep going to vision_events until then) - not done yet, pending review.
+
 ## Evals
 
 Offline comparisons are made with `eval_vlm_models.py` over saved snapshots;
