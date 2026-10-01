@@ -163,7 +163,7 @@ The embedding model is fixed in code (`EMBED_MODEL = "nomic-embed-text"`).
 | `RTSP_URL_CAM1..N` | — | cam1–cam6 | Numbering stops at the first gap |
 | `RTSP_TRANSPORT_CAMn` (or global `RTSP_TRANSPORT`) | `0` | unset | `4` forces TCP |
 | `CAM_TYPE_CAMn` | `street` | cam1–2 `office`, cam3–6 `street` | Office: `SAVE_INTERVAL` throttle, dropped when the queue is full |
-| `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `bicycle` | Comma list of class **names** from the labels file (`bicycle`, `car`, `person`, `road_sign`) ignored on that camera (before any counting). Numeric slots still work but changed meaning on 2026-09-30 (old `3` = bicycle, now `3` = person), so use names. Resolved names are logged at startup (`[Detect] camN: dropping classes bicycle (slot 1)`); an unknown name is logged and ignored |
+| `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `bicycle,car` | Comma list of class **names** from the labels file (`bicycle`, `car`, `person`, `road_sign`) ignored on that camera (before any counting). Numeric slots still work but changed meaning on 2026-09-30 (old `3` = bicycle, now `3` = person), so use names. Resolved names are logged at startup (`[Detect] camN: dropping classes bicycle (slot 1), car (slot 2)`); an unknown name is logged and ignored |
 | `MIN_CONF_PERSON_CAMn` | unset (gate stays `DETECT_MIN_CONF["person"]` = 0.40) | cam6 = `0.60` | Per-camera person confidence gate; only ever raises the 0.40 gate. Blocked detections count as `lowconf` in the monitor funnel. Invalid value = gate off (warning in `pipeline-console.log`) |
 | `MIN_CONF_PERSON_HOURS_CAMn` | unset (all day) | cam6 = `19:15-06:45` | Local-time `HH:MM-HH:MM` window (may wrap midnight; start inclusive, end exclusive) during which `MIN_CONF_PERSON_CAMn` applies. Invalid window = gate off. Fixed clock times: cam6's IR switch moves with sunset/DST, so widen it in winter |
 | `MIN_CONF_CAR_CAMn` / `MIN_CONF_CAR_HOURS_CAMn` | unset | cam6 = `0.80` / `19:15-06:45` | Same gate for `car` (base 0.50). `MIN_CONF_BICYCLE_CAMn` (+ `_HOURS_`) likewise for `bicycle` (base 0.40) |
@@ -206,8 +206,9 @@ prompt still covers motorcycles and scooters, and `motorcycle` is accepted as
 an alias in `.env`. The search UI has both a Bicycle and an "old label"
 Motorcycle filter.
 
-Bicycle is dropped on the office cams (`DROP_CLASSES_CAM1/2=bicycle`) because
-it fires on empty rooms. Confidence gates are hard-coded in
+Bicycle and car are dropped on the office cams (`DROP_CLASSES_CAM1/2=bicycle,car`):
+bicycle fires on empty rooms, and car (dropped since 2026-10-01) was always a
+VLM reject there (NONE). Confidence gates are hard-coded in
 `pipeline_multi.py`: `DETECT_MIN_CONF = {"car": 0.50, "person": 0.40,
 "bicycle": 0.40}`, on top of the detector's `pre-cluster-threshold=0.4`;
 inference runs every 5th frame (`interval=4`). `MIN_CONF_<CLASS>_CAMn` (+
