@@ -8,7 +8,7 @@
 :root {
   --bg: #0f1117; --surface: #1a1d27; --border: #2d3147;
   --accent: #4f6ef7; --text: #e2e4ef; --muted: #8890a8;
-  --person: #3aaa6e; --car: #e07b3a; --motorcycle: #9b6de0;
+  --person: #3aaa6e; --car: #e07b3a; --motorcycle: #9b6de0; --bicycle: #4fb3d9;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 24px; }
@@ -63,6 +63,7 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
 .badge-person     { background: #1a3d2c; color: var(--person); }
 .badge-car        { background: #3d2610; color: var(--car); }
 .badge-motorcycle { background: #2a1b40; color: var(--motorcycle); }
+.badge-bicycle    { background: #12313d; color: var(--bicycle); }
 .badge-unknown    { background: #222; color: var(--muted); }
 .badge-segment    { background: #10303d; color: #6fd3e8; }
 .card-segment     { border-left: 3px solid #10303d; }
@@ -76,7 +77,7 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
 </head>
 <body>
 
-<h1>Vision Search</h1>
+<h1>Vision Search <span id="collTag" style="font-size:0.85rem;color:#e0b43a;"></span></h1>
 <p style="margin-bottom:16px;">
   <a href="/live" style="color:#4f6ef7; text-decoration:none; font-weight:600;">→ View Live Feeds (HLS)</a>
   &nbsp;|&nbsp;
@@ -107,7 +108,8 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
         <option value="">All labels</option>
         <option value="person">Person</option>
         <option value="car">Car</option>
-        <option value="motorcycle">Motorcycle</option>
+        <option value="bicycle">Bicycle</option>
+        <option value="motorcycle">Motorcycle (old label, before 9/30 fix)</option>
       </select>
     </div>
     <div class="field">
@@ -178,6 +180,17 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
 <script>
 const form    = document.getElementById('searchForm');
 const btn     = document.getElementById('searchBtn');
+// ?collection=vision_events_v2 in the page URL searches that collection
+// instead of the server default (side-by-side review); passed to the API.
+const COLLECTION = new URLSearchParams(location.search).get('collection') || '';
+if (COLLECTION) {
+  document.getElementById('collTag').textContent = '· collection ' + COLLECTION;
+  document.title = 'Vision Search · ' + COLLECTION;
+}
+function withCollection(params) {
+  if (COLLECTION) params.set('collection', COLLECTION);
+  return params;
+}
 const statusEl = document.getElementById('status');
 const resultsEl = document.getElementById('results');
 
@@ -200,7 +213,7 @@ form.addEventListener('submit', async (e) => {
   });
 
   try {
-    const resp = await fetch('/query?' + params);
+    const resp = await fetch('/query?' + withCollection(params));
     const data = await resp.json();
     if (!resp.ok) {
       statusEl.textContent = 'Error: ' + (data.detail || resp.statusText);
@@ -230,7 +243,7 @@ function fmtTime(iso) {
 }
 
 function badgeClass(label) {
-  return 'badge-' + ({'person':'person','car':'car','motorcycle':'motorcycle'}[label] || 'unknown');
+  return 'badge-' + ({'person':'person','car':'car','motorcycle':'motorcycle','bicycle':'bicycle'}[label] || 'unknown');
 }
 
 document.getElementById('countBtn').addEventListener('click', async () => {
@@ -247,7 +260,7 @@ document.getElementById('countBtn').addEventListener('click', async () => {
   });
 
   try {
-    const resp = await fetch('/count?' + params);
+    const resp = await fetch('/count?' + withCollection(params));
     const data = await resp.json();
     if (!resp.ok) {
       statusEl.textContent = 'Count error: ' + (data.detail || resp.statusText);

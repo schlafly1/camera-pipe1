@@ -1,6 +1,13 @@
 # TrafficCamNet Transformer Lite (RT-DETR, resnet50) — traffic-domain detector.
 # Replaces the resnet18 TrafficCamNet PGIE (pgie_config_multi.yml).
-# Classes (NGC order): 0=Car 1=RoadSign 2=Person 3=Bicycle  (RoadSign filtered out).
+# Output slots (verified 2026-09-30 by running the engine offline on Thor
+# snapshots, tools/rtdetr_offline.py): the model emits FIVE class scores per
+# query: 0=background (unused) 1=bicycle 2=car 3=person 4=road_sign (4 by
+# elimination; it fires on the cameras' OSD timestamp text). The old
+# 4-class reading (0=Car 1=RoadSign 2=Person 3=Bicycle) was wrong and
+# mislabeled every detection. detector_labels.txt must have exactly
+# num-detected-classes lines; pipeline_multi.py refuses to start otherwise
+# (and if the ONNX pred_logits width differs).
 # Preprocessing/parser values taken from NVIDIA's DS 9.1 RT-DETR template
 # (deepstream-tracker-3d-multi-view/config_templates/config_pgie_rt_detr.txt).
 [property]
@@ -15,9 +22,9 @@ infer-dims=3;544;960
 maintain-aspect-ratio=1
 network-mode=2
 network-type=0
-num-detected-classes=4
-# Drop RoadSign (class 1) at the detector — the app never uses it.
-filter-out-class-ids=1
+num-detected-classes=5
+# Drop background (0) and road_sign (4) at the detector; the app never uses them.
+filter-out-class-ids=0;4
 gie-unique-id=1
 process-mode=1
 interval=4
@@ -36,5 +43,29 @@ strongly-typed=1
 workspace-size=1048576
 
 [class-attrs-all]
+pre-cluster-threshold=0.4
+topk=20
+
+# Explicit per-class entries for all 5 slots (num-detected-classes=5); the
+# custom parser indexes the per-class threshold list by slot, so it must be
+# 5 long. The app applies its own per-class gates on top (DETECT_MIN_CONF in
+# pipeline_multi.py). 0 and 4 are filtered out above anyway.
+[class-attrs-0]
+pre-cluster-threshold=0.4
+topk=20
+
+[class-attrs-1]
+pre-cluster-threshold=0.4
+topk=20
+
+[class-attrs-2]
+pre-cluster-threshold=0.4
+topk=20
+
+[class-attrs-3]
+pre-cluster-threshold=0.4
+topk=20
+
+[class-attrs-4]
 pre-cluster-threshold=0.4
 topk=20

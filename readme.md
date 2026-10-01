@@ -3,7 +3,7 @@
 DeepStream 9.1 camera pipeline running natively on NVIDIA Jetson Thor
 (JetPack 7.2 / L4T R39.2), with the VLM served from a separate DGX Spark box.
 
-It detects cars, persons, and bicycles/motorcycles with RT-DETR (TrafficCamNet
+It detects cars, persons, and bicycles with RT-DETR (TrafficCamNet
 Transformer Lite), sends each detection frame to a VLM for a natural-language
 description, uses that description to reject detector false positives, embeds
 the accepted descriptions with nomic-embed-text, and stores them in ChromaDB. A
@@ -49,6 +49,16 @@ Notes:
 
 Search UI: http://thor2:8001 (or http://localhost:8001 on Thor)
 REST: `curl "http://localhost:8001/query?text=red+car"`
+
+Other collections side by side: add `?collection=<name>` to the page URL
+(e.g. http://thor2:8001/?collection=vision_events_v2 for the rebuilt index);
+the page passes it on to `/query` and `/count`. Allowed names:
+`vision_events`, `vision_events_v2`, `QUERY_COLLECTION`, plus
+`QUERY_COLLECTIONS_EXTRA` (comma list). The default view (no parameter) is
+`QUERY_COLLECTION`, default `vision_events`. A second instance also works:
+`QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 .venv/bin/python3 query_server.py`.
+An empty search ("browse") is sorted by time on the server, newest first
+(`sort_by=time_asc` for oldest first).
 
 ## Start, stop, boot
 
@@ -153,30 +163,73 @@ The embedding model is fixed in code (`EMBED_MODEL = "nomic-embed-text"`).
 | `RTSP_URL_CAM1..N` | — | cam1–cam6 | Numbering stops at the first gap |
 | `RTSP_TRANSPORT_CAMn` (or global `RTSP_TRANSPORT`) | `0` | unset | `4` forces TCP |
 | `CAM_TYPE_CAMn` | `street` | cam1–2 `office`, cam3–6 `street` | Office: `SAVE_INTERVAL` throttle, dropped when the queue is full |
-| `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `3` | Comma list of detector class ids ignored on that camera (before any counting) |
-| `MIN_CONF_PERSON_CAMn` | unset (gate stays `DETECT_MIN_CONF[2]` = 0.40) | cam6 = `0.80` | Per-camera person confidence gate; only ever raises the 0.40 gate. Blocked detections count as `lowconf` in the monitor funnel. Invalid value = gate off (warning in `pipeline-console.log`) |
+| `DROP_CLASSES_CAMn` | empty | cam1, cam2 = `bicycle` | Comma list of class **names** from the labels file (`bicycle`, `car`, `person`, `road_sign`) ignored on that camera (before any counting). Numeric slots still work but changed meaning on 2026-09-30 (old `3` = bicycle, now `3` = person), so use names. Resolved names are logged at startup (`[Detect] camN: dropping classes bicycle (slot 1)`); an unknown name is logged and ignored |
+| `MIN_CONF_PERSON_CAMn` | unset (gate stays `DETECT_MIN_CONF["person"]` = 0.40) | cam6 = `0.60` | Per-camera person confidence gate; only ever raises the 0.40 gate. Blocked detections count as `lowconf` in the monitor funnel. Invalid value = gate off (warning in `pipeline-console.log`) |
 | `MIN_CONF_PERSON_HOURS_CAMn` | unset (all day) | cam6 = `19:15-06:45` | Local-time `HH:MM-HH:MM` window (may wrap midnight; start inclusive, end exclusive) during which `MIN_CONF_PERSON_CAMn` applies. Invalid window = gate off. Fixed clock times: cam6's IR switch moves with sunset/DST, so widen it in winter |
+| `MIN_CONF_CAR_CAMn` / `MIN_CONF_CAR_HOURS_CAMn` | unset | cam6 = `0.80` / `19:15-06:45` | Same gate for `car` (base 0.50). `MIN_CONF_BICYCLE_CAMn` (+ `_HOURS_`) likewise for `bicycle` (base 0.40) |
 | `SAVE_INTERVAL` | `30.0` | `30.0` | Office cams: min seconds between events per class |
 | `STREET_SAVE_INTERVAL` | `8.0` | unset | Street cams: same, shorter |
 | `MIN_TRACK_HITS` | `2` | unset | Tracker hits before a track emits its one event |
 | `PGIE_CONFIG` | `pgie_config_rtdetr.txt` | unset | Detector config |
 | `FRAME_W` / `FRAME_H` | `1280` / `720` | unset | Mux resolution |
 
-Detector classes (RT-DETR NGC order): 0=Car, 1=RoadSign (filtered out in
-`pgie_config_rtdetr.txt`), 2=Person, 3=Bicycle (app label `motorcycle`).
-Class 3 is dropped on the office cams because it fires on empty rooms
-(`notes/motorcycle_rejects_eyeball.md`). Confidence gates are hard-coded in
-`pipeline_multi.py`: `DETECT_MIN_CONF = {0: 0.50, 2: 0.40, 3: 0.40}` (car,
-person, motorcycle), on top of the detector's `pre-cluster-threshold=0.4`;
-inference runs every 5th frame (`interval=4`). `MIN_CONF_PERSON_CAMn` (+
-optional `MIN_CONF_PERSON_HOURS_CAMn`) raises the person gate per camera; cam6
-uses 0.80 at night (0.60 still let ~2.4 events/min through, all rejected, conf 0.61-0.80) because its IR image fires ~1,750 person events a night
-that the VLM rejects, with detector confidence no different from the few it
-"accepts" (which, checked by eye, showed no person either). The pipeline logs
-the active per-camera gates at startup (`[Detect] camN: person min conf ...`).
-The VLM rejection phrases (`_vlm_says_absent` in `pipeline_multi.py`) are
-covered by `LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/test_vlm_absent.py`;
-the env parsing by `.venv/bin/python3 tools/test_person_gate.py`.
+**Detector classes (fixed 2026-09-30).** RT-DETR TrafficCamNet Transformer
+Lite outputs **5** class scores per query: slot 0 = background (unused),
+1 = bicycle, 2 = car, 3 = person, 4 = road_sign (4 by elimination; it fires
+on the cameras' OSD timestamp text). Verified offline on Thor snapshots with
+`tools/rtdetr_offline.py` (a car SUV scores 0.97 in slot 2, a seated person
+0.74 in slot 3, a cyclist 0.83 in slot 3 with the bike 0.82 in slot 1).
+Before the fix the app assumed 4 classes (0 car, 1 road sign, 2 person,
+3 bicycle shown as "motorcycle"), so from the RT-DETR switch (2026-08-21)
+until 2026-09-30 **cars were saved as `person`, people as `motorcycle`,
+and nothing as `car`**; the office `DROP_CLASSES=3` dropped real people and
+the cam6 night "person" gate was really gating cars. Entries in
+`vision_events` from that period are mislabeled (the rebuilt
+`vision_events_v2`, below, fixes them); new entries carry
+`class_map=rtdetr5-20260930` in their metadata.
+
+The class map is read at startup from the labels file named by
+`pgie_config_rtdetr.txt` (`labelfile-path`, `models/trafficcamnet_transformer_lite/model/detector_labels.txt`:
+`BG, bicycle, car, person, road_sign`, one line per slot). The config has
+`num-detected-classes=5`, `filter-out-class-ids=0;4` and per-class
+thresholds for all 5 slots. The pipeline **refuses to start** (exit 2,
+`REFUSING TO START` in `logs/pipeline.log`) if the labels line count differs
+from `num-detected-classes` or from the ONNX `pred_logits` width
+(`tools/model_width.py`, TensorRT ONNX parser, CPU only, ~1 s), if an app
+class (`person`, `car`, `bicycle`) is missing, or if one is filtered out. It
+logs the resolved map, e.g. `[Detect] class map (...): slots 0=bg(filtered)
+1=bicycle 2=car 3=person 4=road_sign(filtered); app classes person=3 car=2
+bicycle=1`. Everything in the code (`DETECT_MIN_CONF`, `VLM_PROMPTS`, the
+absent matcher, gates, drops) is keyed by class name. The two-wheeler class
+is now labeled `bicycle` (the model's name) instead of `motorcycle`; its
+prompt still covers motorcycles and scooters, and `motorcycle` is accepted as
+an alias in `.env`. The search UI has both a Bicycle and an "old label"
+Motorcycle filter.
+
+Bicycle is dropped on the office cams (`DROP_CLASSES_CAM1/2=bicycle`) because
+it fires on empty rooms. Confidence gates are hard-coded in
+`pipeline_multi.py`: `DETECT_MIN_CONF = {"car": 0.50, "person": 0.40,
+"bicycle": 0.40}`, on top of the detector's `pre-cluster-threshold=0.4`;
+inference runs every 5th frame (`interval=4`). `MIN_CONF_<CLASS>_CAMn` (+
+optional `MIN_CONF_<CLASS>_HOURS_CAMn`) raises a class's gate per camera. The
+cam6 night gate of 0.80 was tuned on what was really the car slot (its IR
+image fires ~1,750 false "car" events a night that the VLM rejects; 0.60
+still let ~2.4/min through), so it now lives in `MIN_CONF_CAR_CAM6=0.80`;
+the person gate on cam6 at night is 0.60 (in 9 days of logs the real person
+slot never fired on cam6 at night, so 0.80 would only hide real people). The
+pipeline logs the active gates at startup (`[Detect] camN: car min conf ...`).
+
+Prompts use neutral wording ("Describe the vehicle/person/bicycle in this
+image ... If no ... is clearly visible, reply exactly NONE"), and
+`_vlm_says_absent` treats a NONE reply as absent (rejected). Offline tests
+(nothing live touched):
+
+```bash
+LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/test_vlm_absent.py    # absent/NONE matcher
+.venv/bin/python3 tools/test_person_gate.py                             # gate + DROP_CLASSES env parsing
+LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/test_class_map.py --model   # class map, refuse-to-start, ids
+nice .venv/bin/python3 tools/rtdetr_offline.py --all snapshots/<file>.jpg     # offline detector (copy of the engine, batch 1)
+```
 
 **Queue, frames, snapshots**
 
@@ -208,8 +261,12 @@ Check both backends and the fallback without touching the running pipeline
 (one real call to gx10 and two to Spark, on one saved snapshot):
 
 ```bash
-LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/vlm_backend_selftest.py [snapshots/<file>.jpg]
+LOG_DIR=/tmp/vlm_selftest .venv/bin/python3 tools/vlm_backend_selftest.py [snapshots/<file>.jpg [person|car|bicycle]]
 ```
+
+Pass the class for snapshots saved before 2026-09-30 (their file names carry
+the wrong label). PASS also requires the vLLM reply to describe the object
+(not NONE).
 
 `LOG_DIR` keeps it out of `logs/pipeline.log`; it prints `SELFTEST PASS`/`FAIL`.
 Health check by hand: `curl -s http://gx10-2ea8:8000/v1/models`,
@@ -217,11 +274,16 @@ Health check by hand: `curl -s http://gx10-2ea8:8000/v1/models`,
 
 ## Snapshots and rejected frames
 
-- Accepted events are saved as `snapshots/cam{N}_src{S}_{label}_evt{K}.jpg`
-  with a ChromaDB record (metadata includes `vlm_backend`, `vlm_model`).
-  Event numbers continue after the highest `evt` already in `snapshots/` for
-  each camera, so restarts no longer overwrite old snapshots or reuse Chroma
-  ids.
+- Accepted events are saved as
+  `snapshots/cam{N}_src{S}_{label}_evt{K}_{ms}.jpg` (`ms` = detection time
+  in epoch milliseconds) with a ChromaDB record whose id is the same name
+  (metadata includes `vlm_backend`, `vlm_model`, `class_map`). The file is
+  created exclusively: if the name exists on disk or as a Chroma id, `_1`,
+  `_2`, ... is appended, so a snapshot is never overwritten. Event numbers
+  still continue after the highest `evt` in `snapshots/`. Before commit
+  9302022 event numbers restarted at each restart, which overwrote old
+  snapshots while Chroma kept the old text (ids like
+  `cam1_src0_person_evt738`; ~5,700 such mismatches).
 - Rejected events are not saved by default. With `SAVE_REJECTS=1` each rejected
   frame goes to `snapshots_rejected/<time>_cam{N}_{label}_evt{K}.jpg` with a
   sidecar `.json` (camera, label, confidence, backend/model, frame staleness,

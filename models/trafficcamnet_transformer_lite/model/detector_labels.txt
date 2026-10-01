@@ -1,4 +1,5 @@
-Car
-RoadSign
-Person
-Bicycle
+BG
+bicycle
+car
+person
+road_sign

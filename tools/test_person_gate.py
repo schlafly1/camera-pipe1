@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Offline test for the per-camera person gate env parsing in streams_config
-(MIN_CONF_PERSON_CAMn / MIN_CONF_PERSON_HOURS_CAMn). Pure Python, no
-DeepStream, nothing live touched.
+"""Offline test for the per-camera env parsing in streams_config: the person
+gate (MIN_CONF_PERSON_CAMn / MIN_CONF_PERSON_HOURS_CAMn) and DROP_CLASSES_CAMn
+(class names or numeric slots). Pure Python, no DeepStream, nothing live
+touched. Name -> slot resolution is covered by tools/test_class_map.py.
 
     .venv/bin/python3 tools/test_person_gate.py
 """
@@ -12,7 +13,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 
 for k in list(os.environ):          # isolate from any real .env in the shell
-    if k.startswith(("RTSP_URL_CAM", "MIN_CONF_PERSON", "STREAM_URLS")):
+    if k.startswith(("RTSP_URL_CAM", "MIN_CONF_", "STREAM_URLS", "DROP_CLASSES")):
         del os.environ[k]
 
 import streams_config as sc  # noqa: E402
@@ -71,9 +72,36 @@ def main():
     check(s[1]["min_conf_person"] is None and s[1]["min_conf_person_hours"] is None,
           "window without threshold ignored", f)
 
+    # The same gate for other classes: MIN_CONF_CAR_CAMn (+ _HOURS_).
+    os.environ["MIN_CONF_CAR_CAM2"] = "0.8"
+    os.environ["MIN_CONF_CAR_HOURS_CAM2"] = "19:15-06:45"
+    os.environ["MIN_CONF_BICYCLE_CAM3"] = "0.55"
+    s = {x["camera_id"]: x for x in sc.load_streams()}
+    check(s[2]["min_conf_gates"] == {"person": (0.6, (1155, 405)), "car": (0.8, (1155, 405))},
+          f"cam2 person + car gates {s[2]['min_conf_gates']}", f)
+    check(s[3]["min_conf_gates"] == {"bicycle": (0.55, None)}, "cam3 all-day bicycle gate", f)
+    check(s[1]["min_conf_gates"] == {}, "cam1 no gates", f)
+    check(sc.class_min_conf(0.5, s[2]["min_conf_gates"]["car"], 23 * 60) == 0.8, "car gate at night", f)
+    check(sc.class_min_conf(0.5, s[2]["min_conf_gates"]["car"], 12 * 60) == 0.5, "car gate off by day", f)
+
+    # DROP_CLASSES_CAMn: names (preferred) and/or numeric slots.
+    pc = sc._parse_class_list
+    check(pc("bicycle") == frozenset({"bicycle"}), "name", f)
+    check(pc(" Bicycle ") == frozenset({"bicycle"}), "name is case/space-insensitive", f)
+    check(pc("1, road_sign") == frozenset({1, "road_sign"}), "mixed name + slot", f)
+    check(pc("1;4") == frozenset({1, 4}), "semicolon list", f)
+    check(pc("") == frozenset(), "blank -> empty", f)
+    check(pc("3") == frozenset({3}), "numeric still accepted", f)
+    os.environ["DROP_CLASSES_CAM1"] = "bicycle"
+    os.environ["DROP_CLASSES_CAM2"] = "bicycle,road_sign"
+    s = {x["camera_id"]: x for x in sc.load_streams()}
+    check(s[1]["drop_classes"] == frozenset({"bicycle"}), "cam1 drop bicycle", f)
+    check(s[2]["drop_classes"] == frozenset({"bicycle", "road_sign"}), "cam2 drop list", f)
+    check(s[3]["drop_classes"] == frozenset(), "cam3 drops nothing", f)
+
     for m in f:
         print("FAIL", m)
-    print("person-gate parsing: " + ("all passed" if not f else f"{len(f)} failed"))
+    print("person-gate + drop-class parsing: " + ("all passed" if not f else f"{len(f)} failed"))
     return 1 if f else 0
 
 

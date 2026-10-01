@@ -4,7 +4,12 @@ FastAPI server to query ChromaDB vision events by natural language.
 Serves the search UI at / and static snapshots at /snapshots/*.
 
 Usage:
-    python3 query_server.py
+    python3 query_server.py                       # :8001, collection vision_events
+    QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 python3 query_server.py
+
+Any page/endpoint also takes ?collection=<name> (allow-listed below), e.g.
+http://thor2:8001/?collection=vision_events_v2 shows the rebuilt index side
+by side without changing the default view.
 
 Endpoints:
     GET /               search UI (search.html)
@@ -14,6 +19,7 @@ Endpoints:
 
 import datetime
 import os
+import time
 
 import chromadb
 import ollama
@@ -30,7 +36,12 @@ except Exception:
 
 CHROMADB_HOST  = "localhost"
 CHROMADB_PORT  = 8000
-COLLECTION_NAME = "vision_events"       # per-object detections (search substrate)
+# Default per-object collection (search substrate). ?collection= may pick
+# another one from ALLOWED_COLLECTIONS (side-by-side review of a rebuild).
+COLLECTION_NAME = os.environ.get("QUERY_COLLECTION", "vision_events")
+ALLOWED_COLLECTIONS = {COLLECTION_NAME, "vision_events", "vision_events_v2"} | {
+    c.strip() for c in os.environ.get("QUERY_COLLECTIONS_EXTRA", "").split(",") if c.strip()}
+QUERY_PORT     = int(os.environ.get("QUERY_PORT", "8001"))
 SEGMENT_COLLECTION = "vision_segments"  # per-10/30s "what happened" summaries (option c)
 OLLAMA_MODEL   = "nomic-embed-text"
 # Embedding host: EMBED_HOST, else OLLAMA_HOST, else the ollama client default
@@ -66,6 +77,103 @@ def parse_local_dt(s: str):
         return dt.timestamp()
     except ValueError:
         return None
+
+
+def _objects_collection(name: str = ""):
+    """The object collection to search: ?collection= if allow-listed, else
+    the default. Raises 400 for an unknown name, 503 if Chroma fails."""
+    name = (name or COLLECTION_NAME).strip()
+    if name not in ALLOWED_COLLECTIONS:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown collection {name!r}; allowed: {sorted(ALLOWED_COLLECTIONS)}")
+    try:
+        return chroma_client.get_collection(name)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"ChromaDB error ({name}): {e}")
+
+
+def _and(*conds):
+    conds = [c for c in conds if c]
+    if not conds:
+        return None
+    flat = []
+    for c in conds:
+        flat.extend(c["$and"] if "$and" in c else [c])
+    return flat[0] if len(flat) == 1 else {"$and": flat}
+
+
+def _get_all(collection, where=None, include=("metadatas",), page=5000):
+    """collection.get() in pages: an unpaged get over ~30k+ rows fails in
+    Chroma with "too many SQL variables"."""
+    ids, metas, docs, off = [], [], [], 0
+    while True:
+        kw = {"include": list(include), "limit": page, "offset": off}
+        if where:
+            kw["where"] = where
+        res = collection.get(**kw)
+        if not res["ids"]:
+            break
+        ids += res["ids"]
+        metas += res.get("metadatas") or [None] * len(res["ids"])
+        docs += res.get("documents") or [None] * len(res["ids"])
+        off += len(res["ids"])
+        if len(res["ids"]) < page:
+            break
+    return {"ids": ids, "metadatas": metas, "documents": docs}
+
+
+# Browse window growth: 1h, 4h, ... 4**6 h (~170 days), then one paged scan.
+_BROWSE_STEPS = 7
+
+
+def _browse(collection, where, n, formatter, oldest_first=False, end_ts=None, start_ts=None):
+    """Empty-text browse sorted by wall_time_s ON THE SERVER (Chroma's get()
+    has no ORDER BY and returns rows in storage order, i.e. oldest first).
+    Newest-first: fetch only metadata over a growing time window ending at
+    end_ts/now until n rows are found, then documents for just the top n.
+    Oldest-first: same, with a window growing forward from start_ts (or the
+    whole collection if no start)."""
+    def rows_in(window_where):
+        res = _get_all(collection, _and(where, window_where))
+        return list(zip(res["ids"], res["metadatas"]))
+
+    rows = None
+    if not oldest_first:
+        anchor = end_ts if end_ts is not None else time.time() + 3600
+        span = 3600.0
+        for _ in range(_BROWSE_STEPS):
+            lo = anchor - span
+            if start_ts is not None and lo <= start_ts:
+                break
+            rows = rows_in({"wall_time_s": {"$gte": lo}} if end_ts is None else
+                           {"$and": [{"wall_time_s": {"$gte": lo}},
+                                     {"wall_time_s": {"$lte": anchor}}]})
+            if len(rows) >= n:
+                break
+            rows = None
+            span *= 4
+    elif start_ts is not None:
+        span = 3600.0
+        for _ in range(_BROWSE_STEPS):
+            hi = start_ts + span
+            if end_ts is not None and hi >= end_ts:
+                break
+            rows = rows_in({"$and": [{"wall_time_s": {"$gte": start_ts}},
+                                     {"wall_time_s": {"$lte": hi}}]})
+            if len(rows) >= n:
+                break
+            rows = None
+            span *= 4
+    if rows is None:                               # small/filtered set: take it all
+        res = _get_all(collection, where)
+        rows = list(zip(res["ids"], res["metadatas"]))
+    rows.sort(key=lambda r: float(r[1].get("wall_time_s") or 0), reverse=not oldest_first)
+    top = [r[0] for r in rows[:n]]
+    if not top:
+        return []
+    res = collection.get(ids=top, include=["documents", "metadatas"])
+    by_id = {i: (d, m) for i, d, m in zip(res["ids"], res["documents"], res["metadatas"])}
+    return [formatter(i, *by_id[i]) for i in top if i in by_id]
 
 
 def build_where(start_time: str, end_time: str, label: str, camera_id: str = ""):
@@ -136,9 +244,12 @@ def build_where_segment(start_time: str, end_time: str, camera_id: str = ""):
     return conditions[0] if len(conditions) == 1 else {"$and": conditions}
 
 
-def _search_collection(collection, text, search_type, where, n, formatter, embedding=None):
+def _search_collection(collection, text, search_type, where, n, formatter, embedding=None,
+                       oldest_first=False, start_ts=None, end_ts=None):
     """Run exact / semantic / browse search over one collection; return formatted
-    rows. `embedding` is precomputed for semantic search so we embed once."""
+    rows. `embedding` is precomputed for semantic search so we embed once.
+    Browse (empty text) is sorted by time on the server, newest first unless
+    oldest_first."""
     out = []
     t = text.strip()
     if t and search_type == "exact":
@@ -158,12 +269,8 @@ def _search_collection(collection, text, search_type, where, n, formatter, embed
             out.append(formatter(doc_id, res["documents"][0][i],
                                  res["metadatas"][0][i], res["distances"][0][i]))
     else:
-        kwargs = {"limit": n, "include": ["documents", "metadatas"]}
-        if where:
-            kwargs["where"] = where
-        res = collection.get(**kwargs)
-        for i, doc_id in enumerate(res["ids"]):
-            out.append(formatter(doc_id, res["documents"][i], res["metadatas"][i]))
+        out = _browse(collection, where, n, formatter, oldest_first=oldest_first,
+                      start_ts=start_ts, end_ts=end_ts)
     return out
 
 
@@ -173,20 +280,15 @@ def count(
     end_time: str = "",
     label: str = "",
     camera_id: str = "",
+    collection: str = "",
 ):
     """Count events matching filters, broken down by label and camera."""
     where = build_where(start_time, end_time, label, camera_id)
+    coll_name = collection
+    collection = _objects_collection(coll_name)
 
     try:
-        collection = chroma_client.get_collection(COLLECTION_NAME)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
-
-    kwargs = {"include": ["metadatas"]}
-    if where:
-        kwargs["where"] = where
-    try:
-        results = collection.get(**kwargs)
+        results = _get_all(collection, where)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
 
@@ -199,6 +301,7 @@ def count(
         by_camera[cam]  = by_camera.get(cam, 0) + 1
 
     return {
+        "collection": collection.name,
         "total":     len(results["ids"]),
         "by_label":  dict(sorted(by_label.items())),
         "by_camera": dict(sorted(by_camera.items())),
@@ -221,8 +324,11 @@ def query(
     camera_id: str = "",
     search_type: str = "semantic",
     sources: str = "both",   # "objects", "segments", or "both"
+    collection: str = "",    # object collection (default COLLECTION_NAME)
 ):
     t = text.strip()
+    oldest_first = sort_by == "time_asc"
+    start_ts, end_ts = parse_local_dt(start_time), parse_local_dt(end_time)
 
     # A label filter implies object search (segments have no label).
     want_objects  = sources in ("both", "objects")
@@ -238,14 +344,12 @@ def query(
 
     output = []
 
+    col = _objects_collection(collection) if want_objects else None
     if want_objects:
-        try:
-            col = chroma_client.get_collection(COLLECTION_NAME)
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"ChromaDB error: {e}")
         where = build_where(start_time, end_time, label, camera_id)
         try:
-            output += _search_collection(col, text, search_type, where, n, fmt, embedding)
+            output += _search_collection(col, text, search_type, where, n, fmt, embedding,
+                                         oldest_first, start_ts, end_ts)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"ChromaDB query error: {e}")
 
@@ -259,7 +363,8 @@ def query(
             where_seg = build_where_segment(start_time, end_time, camera_id)
             try:
                 output += _search_collection(seg_col, text, search_type, where_seg,
-                                             n, fmt_segment, embedding)
+                                             n, fmt_segment, embedding,
+                                             oldest_first, start_ts, end_ts)
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"ChromaDB segment query error: {e}")
 
@@ -271,9 +376,13 @@ def query(
     elif t and search_type != "exact":
         # relevance: nearest first; rows without a distance (browse) go last
         output.sort(key=lambda x: x["distance"] if x["distance"] is not None else 1e9)
+    elif not t:
+        # browse: newest first (each collection is already server-sorted;
+        # this merges objects + segments in time order)
+        output.sort(key=lambda x: x["wall_time_s"] or 0, reverse=True)
 
     output = output[:n]   # respect max results across the merged set
-    return {"query": text, "count": len(output), "results": output}
+    return {"query": text, "collection": col.name if col is not None else (collection or COLLECTION_NAME), "count": len(output), "results": output}
 
 
 LIVE_HTML = """
@@ -324,4 +433,6 @@ def live():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    print(f"[query_server] default collection {COLLECTION_NAME} on :{QUERY_PORT}; "
+          f"?collection= allows {sorted(ALLOWED_COLLECTIONS)}", flush=True)
+    uvicorn.run(app, host="0.0.0.0", port=QUERY_PORT)

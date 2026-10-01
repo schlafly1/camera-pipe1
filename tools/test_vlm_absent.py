@@ -14,7 +14,8 @@ os.environ.setdefault("LOG_DIR", "/tmp/vlm_selftest")
 
 from pipeline_multi import _vlm_says_absent  # noqa: E402
 
-PERSON, CAR, MOTO = 2, 0, 3
+# Classes are keyed by NAME since the 2026-09-30 class-map fix.
+PERSON, CAR, MOTO = "person", "car", "bicycle"
 
 # (class_id, text) the VLM uses when the detected object is NOT in the frame.
 ABSENT = [
@@ -61,6 +62,17 @@ ABSENT = [
     (CAR,    "This is not a vehicle; it is a shadow on the pavement."),
     (MOTO,   "There is no motorcycle or bicycle in the image."),
     (MOTO,   "The image doesn't contain a bike."),
+    # The prompts now ask for exactly NONE when the object isn't there.
+    (CAR,    "NONE"),
+    (PERSON, "NONE."),
+    (MOTO,   "**None**"),
+    (CAR,    "None - the driveway is empty."),
+    (CAR,    "NONE. The driveway is empty."),
+    (MOTO,   "NONE: only a parked car is visible."),
+    (PERSON, "The path is empty and dark. NONE"),
+    (PERSON, "  none  "),
+    (CAR,    ""),
+    (MOTO,   "There is no bicycle or other two-wheeler in the image."),
 ]
 
 # Real descriptions (object present) that must NOT be flagged.
@@ -98,6 +110,24 @@ PRESENT = [
     (MOTO,   "A red scooter parked with no rider."),
     (MOTO,   "A cyclist with no helmet riding a black bicycle."),
     (MOTO,   "A sport motorcycle with no passenger, heading north."),
+    # NONE as a field value / "none of" must not count as absent.
+    (CAR,    "A white sedan heading left. License plate: none."),
+    (CAR,    "None of the windows are broken; a blue SUV is parked on the left."),
+    (PERSON, "A man in a dark jacket walking right; accessories: none."),
+    (CAR,    "A grey SUV heading right. License plate not legible; none."),
+    (MOTO,   "A red scooter heading left. Any passenger? None."),
+    (CAR,    "None, but a white sedan is partly visible at the left edge."),
+    (PERSON, "None of his face is visible, but a man in a red jacket walks left."),
+    (MOTO,   "A cyclist in a red jacket rides a black road bike to the left; "
+             "passenger: none."),
+]
+
+# Numeric detector slots are still accepted (mapped through DETECT_CLASSES):
+# slot 2 is car and slot 3 is person in the 5-slot class map.
+SLOT_CASES = [
+    (2, "There are no vehicles in this image.", True),
+    (3, "There are no people in this image.", True),
+    (3, "A man in a grey hoodie walks left.", False),
 ]
 
 
@@ -109,11 +139,14 @@ def main():
     for cls, text in PRESENT:
         if _vlm_says_absent(text, cls):
             fails.append(("should be PRESENT", cls, text))
+    for slot, text, want in SLOT_CASES:
+        if _vlm_says_absent(text, slot) != want:
+            fails.append(("numeric slot     ", slot, text))
     for kind, cls, text in fails:
         print(f"FAIL {kind} class={cls}: {text}")
-    total = len(ABSENT) + len(PRESENT)
+    total = len(ABSENT) + len(PRESENT) + len(SLOT_CASES)
     print(f"{total - len(fails)}/{total} passed "
-          f"({len(ABSENT)} absent, {len(PRESENT)} present cases)")
+          f"({len(ABSENT)} absent, {len(PRESENT)} present, {len(SLOT_CASES)} slot cases)")
     return 1 if fails else 0
 
 

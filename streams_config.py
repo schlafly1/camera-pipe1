@@ -9,11 +9,17 @@ def _warn(msg):
 
 
 def _parse_class_list(raw):
-    """'3' or '0,3' -> frozenset({3}) / frozenset({0, 3}); blank -> empty."""
+    """DROP_CLASSES_CAMn value -> frozenset of tokens: class NAMES (lowercased
+    str, e.g. 'bicycle') and/or numeric detector slots (int). 'bicycle' ->
+    {'bicycle'}; '1,road_sign' -> {1, 'road_sign'}; blank -> empty.
+    Tokens are resolved against the detector's class map (labels file) by
+    pipeline_multi.resolve_class_tokens(), which logs what each one became."""
     out = set()
-    for part in raw.replace(" ", "").split(","):
-        if part:
-            out.add(int(part))
+    for part in raw.replace(" ", "").replace(";", ",").split(","):
+        part = part.strip().lower()
+        if not part:
+            continue
+        out.add(int(part) if part.lstrip("-").isdigit() else part)
     return frozenset(out)
 
 
@@ -66,9 +72,10 @@ def in_hours(minute_of_day, window):
 
 
 def person_min_conf(base, gate, minute_of_day):
-    """Effective person confidence gate for one camera right now.
+    """Effective confidence gate for one camera + class right now (named for
+    its first use, the person gate; class_min_conf is the same function).
 
-    base: DETECT_MIN_CONF[2]; gate: (min_conf, window-or-None) or None.
+    base: DETECT_MIN_CONF[class]; gate: (min_conf, window-or-None) or None.
     Returns base unless a gate is set and (no window or inside it); a gate
     can only raise base, never lower it."""
     if not gate:
@@ -77,6 +84,29 @@ def person_min_conf(base, gate, minute_of_day):
     if window is not None and not in_hours(minute_of_day, window):
         return base
     return max(base, conf)
+
+
+class_min_conf = person_min_conf
+
+# Classes that accept MIN_CONF_<CLASS>_CAMn / MIN_CONF_<CLASS>_HOURS_CAMn.
+GATE_CLASSES = ("person", "car", "bicycle")
+
+
+def _parse_gate(cam, cname):
+    """(min_conf, window-or-None) for MIN_CONF_<CLASS>_CAMn (+ _HOURS_), or
+    (None, None) if unset/invalid (an invalid window disables the gate)."""
+    k = cname.upper()
+    key, hkey = f"MIN_CONF_{k}_CAM{cam}", f"MIN_CONF_{k}_HOURS_CAM{cam}"
+    conf = _parse_min_conf(os.environ.get(key, ""), key)
+    hours = _parse_hours(os.environ.get(hkey, ""), hkey)
+    if hours is False:
+        return None, None               # bad window -> gate off, not all-day
+    if hours and not os.environ.get(key, "").strip():
+        _warn(f"{hkey} is set but {key} is not; ignoring the window")
+        hours = None
+    if conf is None:
+        hours = None
+    return conf, hours
 
 
 def load_streams():
@@ -88,14 +118,20 @@ def load_streams():
       CAM_TYPE_CAMn=office or street (default street)
         - street: always send detections to VLM (no SAVE_INTERVAL throttle)
         - office: throttle with SAVE_INTERVAL; drop if VLM queue full
-      DROP_CLASSES_CAMn=3 (comma list of detector class ids) to ignore those
-        classes on that camera only, e.g. RT-DETR class 3 (Bicycle, app label
-        "motorcycle") on office cams where it fires on empty rooms
+      DROP_CLASSES_CAMn=bicycle (comma list of class NAMES from
+        detector_labels.txt, or numeric detector slots) to ignore those
+        classes on that camera only, e.g. bicycle on the office cams where it
+        fires on empty rooms. Names are preferred: numeric slots changed with
+        the 2026-09-30 5-slot class map (old "3" meant bicycle, now person)
       MIN_CONF_PERSON_CAMn=0.60 raises the person confidence gate on that
-        camera (never lowers it below DETECT_MIN_CONF[2]); unset = unchanged
+        camera (never lowers it below DETECT_MIN_CONF["person"]); unset =
+        unchanged
       MIN_CONF_PERSON_HOURS_CAMn=19:15-06:45 limits that gate to a local-time
         window (may wrap midnight); unset = all day. An invalid value for
         either key disables the gate for that camera (with a warning).
+      MIN_CONF_CAR_CAMn / MIN_CONF_CAR_HOURS_CAMn and MIN_CONF_BICYCLE_CAMn /
+        MIN_CONF_BICYCLE_HOURS_CAMn: the same gate for the other classes
+        (e.g. cam6's night-IR false "car" detections).
     Fallback: comma-separated STREAM_URLS for quick tests (treated as street).
     """
     streams = []
@@ -115,24 +151,12 @@ def load_streams():
         drop_classes = _parse_class_list(
             os.environ.get(f"DROP_CLASSES_CAM{cam}", "")
         )
-        min_conf_person = _parse_min_conf(
-            os.environ.get(f"MIN_CONF_PERSON_CAM{cam}", ""),
-            f"MIN_CONF_PERSON_CAM{cam}",
-        )
-        min_conf_person_hours = _parse_hours(
-            os.environ.get(f"MIN_CONF_PERSON_HOURS_CAM{cam}", ""),
-            f"MIN_CONF_PERSON_HOURS_CAM{cam}",
-        )
-        if min_conf_person_hours is False:
-            min_conf_person = None      # bad window -> gate off, not all-day
-            min_conf_person_hours = None
-        elif (min_conf_person_hours
-              and not os.environ.get(f"MIN_CONF_PERSON_CAM{cam}", "").strip()):
-            _warn(f"MIN_CONF_PERSON_HOURS_CAM{cam} is set but "
-                  f"MIN_CONF_PERSON_CAM{cam} is not; ignoring the window")
-            min_conf_person_hours = None
-        if min_conf_person is None:
-            min_conf_person_hours = None
+        gates = {}
+        for cname in GATE_CLASSES:
+            conf, hours = _parse_gate(cam, cname)
+            if conf is not None:
+                gates[cname] = (conf, hours)
+        min_conf_person, min_conf_person_hours = gates.get("person", (None, None))
         streams.append({
             "camera_id": cam,
             "source_index": cam - 1,
@@ -143,6 +167,7 @@ def load_streams():
             "drop_classes": drop_classes,
             "min_conf_person": min_conf_person,
             "min_conf_person_hours": min_conf_person_hours,
+            "min_conf_gates": gates,     # {class name: (conf, window-or-None)}
         })
         cam += 1
 

@@ -6,8 +6,12 @@ Detections queue to a shared VLM worker (Ollama on Spark via OLLAMA_HOST).
 
 Replaces the per-camera container model (pipeline2.py + cam1.yml).
 
-Classes detected by TrafficCamNet:
-  0=Car  1=TwoWheeler  2=Person  3=RoadSign (skipped)
+Classes: read at startup from the nvinfer labels file (pgie_config_rtdetr.txt
+labelfile-path), one line per model output slot. RT-DETR TrafficCamNet
+Transformer Lite has 5 slots: 0=BG 1=bicycle 2=car 3=person 4=road_sign
+(0 and 4 filtered out). Everything in the app is keyed by class NAME; the
+pipeline refuses to start if the labels file, num-detected-classes and the
+model's pred_logits width disagree.
 """
 
 import datetime
@@ -19,6 +23,8 @@ import os
 import queue
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -28,7 +34,7 @@ import ollama
 import requests
 from pyservicemaker import BatchMetadataOperator, Pipeline, Probe
 
-from streams_config import load_streams, person_min_conf
+from streams_config import class_min_conf, load_streams
 
 try:
     from zoneinfo import ZoneInfo
@@ -184,14 +190,157 @@ def _setup_logging():
 
 log = _setup_logging()
 
-# RT-DETR TrafficCamNet-Transformer class order (NGC): 0=Car 1=RoadSign
-# 2=Person 3=Bicycle. RoadSign is filtered out in pgie_config_rtdetr.txt.
-# We keep the app's "motorcycle" label/prompt for the two-wheeler (Bicycle) class.
-DETECT_CLASSES  = {0: "car", 2: "person", 3: "motorcycle"}
+# ── Detector class map (by NAME, read from the labels file) ──────────────────
+# Line i of the labels file names model output slot i. Before 2026-09-30 the
+# app hard-coded a 4-class order (0=Car 1=RoadSign 2=Person 3=Bicycle) that
+# did not match the model's 5 outputs (0=BG 1=bicycle 2=car 3=person
+# 4=road_sign): cars were saved as "person" and people as "motorcycle".
+# Verified offline on Thor snapshots with tools/rtdetr_offline.py.
+PGIE_CONFIG     = os.environ.get("PGIE_CONFIG", "pgie_config_rtdetr.txt")
+# The classes the app queues to the VLM. "bicycle" is the model's own name
+# (it was displayed as "motorcycle" before the class-map fix; the prompt and
+# absent-matcher still cover motorcycles/scooters).
+APP_CLASSES     = ("person", "car", "bicycle")
+CLASS_NAME_ALIASES = {"motorcycle": "bicycle", "roadsign": "road_sign",
+                      "background": "bg"}
+CLASS_MAP_VERSION = "rtdetr5-20260930"   # stored in Chroma metadata
+
+
+class ClassMapError(RuntimeError):
+    pass
+
+
+def _norm_class_name(name):
+    n = re.sub(r"[\s\-]+", "_", str(name).strip().lower())
+    return CLASS_NAME_ALIASES.get(n, n)
+
+
+def _read_pgie_properties(path):
+    """[property] key=value pairs of an nvinfer .txt config (comments dropped)."""
+    props, section = {}, None
+    with open(path) as fh:
+        for line in fh:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip()
+            elif section == "property" and "=" in line:
+                k, v = line.split("=", 1)
+                props[k.strip()] = v.strip()
+    return props
+
+
+def load_class_map(pgie_config=PGIE_CONFIG):
+    """Read the labels file named by the pgie config. Returns a dict:
+    names (slot -> normalized name), slots (app name -> slot), filtered
+    (filter-out-class-ids), labels_path, onnx_path. Raises ClassMapError if
+    the labels line count != num-detected-classes, a name is duplicated, an
+    app class is missing, or an app class is filtered out at the detector."""
+    base = os.path.dirname(os.path.abspath(pgie_config))
+    props = _read_pgie_properties(pgie_config)
+    lf = props.get("labelfile-path")
+    if not lf:
+        raise ClassMapError(f"{pgie_config}: no labelfile-path")
+    lf = lf if os.path.isabs(lf) else os.path.join(base, lf)
+    with open(lf) as fh:
+        raw = [ln.strip() for ln in fh if ln.strip()]
+    names = [_norm_class_name(x) for x in raw]
+    try:
+        n_cfg = int(props.get("num-detected-classes", ""))
+    except ValueError:
+        raise ClassMapError(f"{pgie_config}: num-detected-classes missing/invalid")
+    if len(names) != n_cfg:
+        raise ClassMapError(
+            f"{lf} has {len(names)} labels but {pgie_config} num-detected-classes={n_cfg}")
+    if len(set(names)) != len(names):
+        raise ClassMapError(f"{lf}: duplicate class names {names}")
+    filtered = set()
+    for tok in re.split(r"[;,\s]+", props.get("filter-out-class-ids", "")):
+        if tok:
+            filtered.add(int(tok))
+    slots = {}
+    for cname in APP_CLASSES:
+        if cname not in names:
+            raise ClassMapError(f"{lf} has no '{cname}' line (labels: {names})")
+        slots[cname] = names.index(cname)
+        if slots[cname] in filtered:
+            raise ClassMapError(f"app class {cname} (slot {slots[cname]}) is in "
+                                f"filter-out-class-ids")
+    onnx = props.get("onnx-file")
+    if onnx and not os.path.isabs(onnx):
+        onnx = os.path.join(base, onnx)
+    return {"names": names, "slots": slots, "filtered": filtered,
+            "labels_path": lf, "onnx_path": onnx}
+
+
+def model_output_width(onnx_path):
+    """pred_logits width of the ONNX (tools/model_width.py: TensorRT ONNX
+    parser, CPU only, run in a subprocess so this process never imports
+    tensorrt). None if it can't be determined."""
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "model_width.py")
+    try:
+        r = subprocess.run([sys.executable, tool, onnx_path], capture_output=True,
+                           text=True, timeout=300)
+        if r.returncode == 0:
+            return int(r.stdout.strip().splitlines()[-1])
+        log.warning("[Detect] model width probe failed: %s",
+                    (r.stderr or r.stdout).strip().splitlines()[-1:])
+    except Exception as e:
+        log.warning("[Detect] model width probe failed: %s", e)
+    return None
+
+
+def describe_class_map(cmap):
+    parts = []
+    for i, n in enumerate(cmap["names"]):
+        parts.append(f"{i}={n}" + ("(filtered)" if i in cmap["filtered"] else ""))
+    app = " ".join(f"{n}={s}" for n, s in cmap["slots"].items())
+    return f"slots {' '.join(parts)}; app classes {app}"
+
+
+try:
+    # Resolve a relative PGIE_CONFIG against this file's directory so tools
+    # importing pipeline_multi from another cwd still find it (nvinfer itself
+    # gets PGIE_CONFIG as-is; the pipeline runs from the repo root).
+    CLASS_MAP = load_class_map(PGIE_CONFIG if os.path.isabs(PGIE_CONFIG) else
+                               os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            PGIE_CONFIG))
+except (ClassMapError, OSError, ValueError) as _e:
+    log.error(f"[Detect] REFUSING TO START: class map invalid: {_e}")
+    raise SystemExit(2)
+CLASS_NAMES    = CLASS_MAP["names"]          # slot -> name (all model slots)
+CLASS_SLOTS    = CLASS_MAP["slots"]          # app name -> slot
+DETECT_CLASSES = {slot: name for name, slot in CLASS_SLOTS.items()}   # slot -> app name
+
+
+def resolve_class_tokens(tokens, key="DROP_CLASSES"):
+    """DROP_CLASSES tokens (names and/or numeric slots, see
+    streams_config._parse_class_list) -> frozenset of slots. Unknown tokens
+    are logged and ignored."""
+    out = set()
+    for t in tokens:
+        if isinstance(t, int):
+            if 0 <= t < len(CLASS_NAMES):
+                out.add(t)
+                log.info(f"[Detect] {key}: numeric slot {t} = {CLASS_NAMES[t]} "
+                         f"(prefer the name)")
+            else:
+                log.warning(f"[Detect] {key}: ignoring unknown slot {t}")
+        else:
+            n = _norm_class_name(t)
+            if n in CLASS_NAMES:
+                out.add(CLASS_NAMES.index(n))
+            else:
+                log.warning(f"[Detect] {key}: ignoring unknown class {t!r} "
+                            f"(known: {', '.join(CLASS_NAMES)})")
+    return frozenset(out)
+
+
 # RT-DETR is far more precise than the old resnet18 (which hallucinated "car" on
 # foliage, forcing a 0.75 gate). The detector already gates at pre-cluster-
 # threshold=0.4; these are secondary per-class gates in the probe.
-DETECT_MIN_CONF = {0: 0.50, 2: 0.40, 3: 0.40}
+DETECT_MIN_CONF = {"car": 0.50, "person": 0.40, "bicycle": 0.40}
 
 # Per-object dedup (requires nvtracker). Emit one event per unique track id so a
 # single passing car = one event instead of one per inference frame.
@@ -199,23 +348,30 @@ MIN_TRACK_HITS  = int(os.environ.get("MIN_TRACK_HITS", "2"))  # frames before em
 TRACK_TTL       = 30.0        # forget a track id this long after last seen
 UNTRACKED_ID    = 2 ** 63     # tracker ids at/above this are "untracked" sentinels
 
+# Neutral wording: the prompt does not assert the object is there, and gives
+# the VLM an explicit way out (NONE), which _vlm_says_absent treats as absent.
 VLM_PROMPTS = {
-    0: (
-        "Describe this vehicle in 2-3 sentences. Include: color, body style"
-        " (sedan/SUV/truck/van/coupe), make and model if recognizable, approximate"
-        " year range, any visible damage or distinctive markings, direction of travel,"
-        " and license plate text if legible."
+    "car": (
+        "Describe the vehicle (car, SUV, truck or van) in this image in 2-3"
+        " sentences. Include: color, body style (sedan/SUV/truck/van/coupe), make"
+        " and model if recognizable, approximate year range, any visible damage or"
+        " distinctive markings, direction of travel, and license plate text if"
+        " legible. If no vehicle is clearly visible, reply exactly NONE."
     ),
-    2: (
-        "Describe this person in 2-3 sentences. Include: approximate age range and"
-        " gender, hair color and length, clothing (shirt/jacket color and style,"
-        " pants/skirt color, footwear), any accessories (backpack, hat, bag, phone),"
-        " what they are doing, and which direction they are moving."
+    "person": (
+        "Describe the person in this image in 2-3 sentences. Include: approximate"
+        " age range and gender, hair color and length, clothing (shirt/jacket color"
+        " and style, pants/skirt color, footwear), any accessories (backpack, hat,"
+        " bag, phone), what they are doing, and which direction they are moving."
+        " If no person is clearly visible, reply exactly NONE."
     ),
-    3: (
-        "Describe this motorcycle or bicycle in 2-3 sentences. Include: type"
-        " (sport/cruiser/dirt bike/bicycle/scooter), color, make if recognizable,"
-        " rider's helmet color and clothing, any passenger, and direction of travel."
+    "bicycle": (
+        "Describe the bicycle (or other two-wheeler such as a motorcycle or"
+        " scooter) in this image in 2-3 sentences. Include: type (road/mountain/"
+        "e-bike/motorcycle/scooter), color, make if recognizable, the rider's"
+        " helmet and clothing if someone is riding it, any passenger, and direction"
+        " of travel. If no bicycle or other two-wheeler is clearly visible, reply"
+        " exactly NONE."
     ),
 }
 
@@ -230,14 +386,15 @@ _VLM_REFUSAL = (
 )
 
 
-# Subject nouns per class for the structural negation patterns below. Riders
-# and passengers are deliberately NOT class-3 nouns: "a parked motorcycle with
-# no rider" still has a motorcycle in it.
+# Subject nouns per class (by name) for the structural negation patterns
+# below. Riders and passengers are deliberately NOT bicycle nouns: "a parked
+# bicycle with no rider" still has a bicycle in it.
 _VLM_SUBJECT_NOUNS = {
-    0: ("vehicles?", "cars?", "trucks?", "vans?", "suvs?", "automobiles?"),
-    2: ("people", "persons?", "humans?", "individuals?", "pedestrians?",
-        "anyone", "anybody", "someone", "somebody", r"human\s+figures?"),
-    3: ("motorcycles?", "motorbikes?", "bicycles?", "bikes?", "scooters?"),
+    "car": ("vehicles?", "cars?", "trucks?", "vans?", "suvs?", "automobiles?"),
+    "person": ("people", "persons?", "humans?", "individuals?", "pedestrians?",
+               "anyone", "anybody", "someone", "somebody", r"human\s+figures?"),
+    "bicycle": ("motorcycles?", "motorbikes?", "bicycles?", "bikes?", "scooters?",
+                "two-wheelers?"),
 }
 # Optional qualifier between the negation and the noun ("no clearly visible people").
 _NEG_ADJ = (r"(?:(?:clearly |readily |easily |actually )?(?:visible|identifiable|"
@@ -264,8 +421,8 @@ _NEG_SEEN = (r" (?:(?:is|are|was|were|can be|could be) (?:clearly |readily )?)?"
              r"in sight|in (?:the|this) (?:image|frame|scene|picture|photo))\b")
 
 
-def _build_absent_rx(class_id):
-    nouns = "|".join(_VLM_SUBJECT_NOUNS[class_id])
+def _build_absent_rx(cname):
+    nouns = "|".join(_VLM_SUBJECT_NOUNS[cname])
     # Not a possessive: "the person's face is not visible" is a real person.
     n = r"(?:%s)\b(?!'s\b)%s" % (nouns, _NEG_EXCEPT)
     art = r"(?:any |a |an )?"   # not "the": "does not show the person clearly"
@@ -295,9 +452,9 @@ def _build_absent_rx(class_id):
         r"(?:actually )?(?:visible|present|shown|in (?:the|this) (?:image|frame|"
         r"scene|picture|photo))\b" % nouns,
     ]
-    if class_id == 0:
+    if cname == "car":
         pats.append(r"\bnot a vehicle\b")
-    if class_id == 2:
+    if cname == "person":
         # "Nobody is present", "there is no one", "the image shows nobody"
         # (not "no one else").
         pats.append(_NEG_CTX + r"(?:nobody|no one|no-one)\b" + _NEG_EXCEPT)
@@ -305,20 +462,33 @@ def _build_absent_rx(class_id):
     return re.compile("|".join("(?:%s)" % p for p in pats))
 
 
-_VLM_ABSENT_RX = {cls: _build_absent_rx(cls) for cls in _VLM_SUBJECT_NOUNS}
+_VLM_ABSENT_RX = {name: _build_absent_rx(name) for name in _VLM_SUBJECT_NOUNS}
 # An explicit sighting overrides a hedged negation elsewhere in the reply:
 # "there is no clearly visible person to describe. A person is partially
 # visible in the foreground, sitting in a chair ..." (seen on cam2).
 _VLM_PRESENT_RX = {
-    2: re.compile(
+    "person": re.compile(
         r"\b(?:a|one|the) (?:person|man|woman|individual|figure|pedestrian|"
         r"child|boy|girl) (?:is|can be) (?:partially |partly |faintly |barely |"
         r"dimly |only |just |clearly )?(?:visible|seen)\b"),
 }
 
 
-def _vlm_says_absent(description, class_id):
+# The prompts ask for exactly NONE when the object isn't there. Absent:
+# the whole reply is NONE ("NONE", "None.", "**NONE**"); it opens with NONE
+# followed by "."/"!"/a dash/colon ("NONE. The driveway is empty.", "NONE -
+# no car here"); or it ends with a separate all-caps NONE sentence ("The
+# path is empty. NONE"). Not absent: "None, but a white sedan is partly
+# visible", "None of the windows are broken", field values like "License
+# plate: none." / "; none." / "Any passenger? None." (not all caps).
+_VLM_NONE_START_RX = re.compile(r"^\W*none(?:\W*$|\s*[.!\-\u2013\u2014:])", re.I)
+_VLM_NONE_END_RX = re.compile(r"(?:^|[.!?]\s+)\W*NONE\W*$")
+
+
+def _vlm_says_absent(description, cls):
     """True if the VLM's reply indicates the detected object isn't present.
+    cls is the class NAME ("person", "car", "bicycle"); a numeric detector
+    slot is accepted too and mapped through DETECT_CLASSES.
 
     Deliberately narrow: matches explicit refusals and subject-specific
     negations ("no vehicles", "does not contain any people", "nobody",
@@ -328,13 +498,18 @@ def _vlm_says_absent(description, class_id):
     exclusions that imply the subject IS there ("no other people besides the
     man", "no one else"). Offline test: tools/test_vlm_absent.py.
     """
-    d = re.sub(r"\s+", " ", description.lower().replace("\u2019", "'"))
+    if isinstance(cls, int):
+        cls = DETECT_CLASSES.get(cls, cls)
+    raw = re.sub(r"\s+", " ", description).strip()
+    if not raw or _VLM_NONE_START_RX.search(raw) or _VLM_NONE_END_RX.search(raw):
+        return True
+    d = raw.lower().replace("\u2019", "'")
     if any(m in d for m in _VLM_REFUSAL):
         return True
-    rx = _VLM_ABSENT_RX.get(class_id)
+    rx = _VLM_ABSENT_RX.get(cls)
     if not (rx and rx.search(d)):
         return False
-    pos = _VLM_PRESENT_RX.get(class_id)
+    pos = _VLM_PRESENT_RX.get(cls)
     return not (pos and pos.search(d))
 
 
@@ -352,7 +527,7 @@ class StatsTracker:
 
     The funnel, in order (each stage counts events that STOPPED there):
       detections  objects of an interesting class seen by the PGIE
-      low_conf    rejected by DETECT_MIN_CONF (or MIN_CONF_PERSON_CAMn)
+      low_conf    rejected by DETECT_MIN_CONF (or MIN_CONF_<CLASS>_CAMn)
       dedup       suppressed by tracker-id dedup (already emitted / probation)
       throttled   suppressed by the (camera, class) save-interval throttle
       queued      handed to the VLM worker
@@ -500,32 +675,41 @@ class ObjectDetector(BatchMetadataOperator):
             log.info(f"[Detect] event ids continue after snapshots/ max: {self._event_ids}")
         self._track_seen = {}   # (camera_id, track_id) -> {count, emitted, last}
         # Per-camera class drops (DROP_CLASSES_CAMn in .env, see
-        # streams_config.py) — e.g. RT-DETR class 3 "Bicycle" on the office
-        # cams, where it fires on empty rooms (notes/motorcycle_rejects_eyeball.md).
-        # Dropped classes are treated as if not in DETECT_CLASSES for that
-        # camera: not counted, not deduped, not queued.
+        # streams_config.py) — e.g. bicycle on the office cams, where it
+        # fires on empty rooms (notes/motorcycle_rejects_eyeball.md).
+        # Values are class NAMES (numeric slots still accepted), resolved
+        # against the labels file here and logged. Dropped classes are
+        # treated as if not in DETECT_CLASSES for that camera: not counted,
+        # not deduped, not queued.
         self._drop_classes = {
-            s["camera_id"]: frozenset(s.get("drop_classes", ())) for s in streams
+            s["camera_id"]: resolve_class_tokens(
+                s.get("drop_classes", ()), f"DROP_CLASSES_CAM{s['camera_id']}")
+            for s in streams
         }
         for cam, cls_set in sorted(self._drop_classes.items()):
             if cls_set:
-                names = ", ".join(f"{c}={DETECT_CLASSES.get(c, '?')}" for c in sorted(cls_set))
+                names = ", ".join(f"{CLASS_NAMES[c]} (slot {c})" for c in sorted(cls_set))
                 log.info(f"[Detect] cam{cam}: dropping classes {names}")
-        # Per-camera person gate (MIN_CONF_PERSON_CAMn, optionally limited to
-        # MIN_CONF_PERSON_HOURS_CAMn local time) — e.g. cam6's night-IR false
-        # positives. Only ever raises DETECT_MIN_CONF[2]; unset = unchanged.
-        self._person_gate = {
-            s["camera_id"]: (s["min_conf_person"], s.get("min_conf_person_hours"))
-            for s in streams if s.get("min_conf_person") is not None
-        }
-        for cam, (conf, hours) in sorted(self._person_gate.items()):
-            when = ("all day" if hours is None else
-                    "%02d:%02d-%02d:%02d local" % (hours[0] // 60, hours[0] % 60,
-                                                   hours[1] // 60, hours[1] % 60))
-            log.info(f"[Detect] cam{cam}: person min conf {conf:.2f} ({when})")
-        if (any(h is not None for _, h in self._person_gate.values())
+        # Per-camera, per-class confidence gates (MIN_CONF_<CLASS>_CAMn,
+        # optionally limited to MIN_CONF_<CLASS>_HOURS_CAMn local time) — e.g.
+        # cam6's night-IR false positives. Only ever raise DETECT_MIN_CONF;
+        # unset = unchanged. Keyed by class NAME.
+        self._class_gates = {}
+        for s in streams:
+            g = dict(s.get("min_conf_gates") or {})
+            if not g and s.get("min_conf_person") is not None:     # old dict shape
+                g["person"] = (s["min_conf_person"], s.get("min_conf_person_hours"))
+            if g:
+                self._class_gates[s["camera_id"]] = g
+        for cam, g in sorted(self._class_gates.items()):
+            for cname, (conf, hours) in sorted(g.items()):
+                when = ("all day" if hours is None else
+                        "%02d:%02d-%02d:%02d local" % (hours[0] // 60, hours[0] % 60,
+                                                       hours[1] // 60, hours[1] % 60))
+                log.info(f"[Detect] cam{cam}: {cname} min conf {conf:.2f} ({when})")
+        if (any(h is not None for g in self._class_gates.values() for _, h in g.values())
                 and getattr(LOCAL_TZ, "key", None) is None):
-            log.warning("[Detect] zoneinfo unavailable: MIN_CONF_PERSON_HOURS "
+            log.warning("[Detect] zoneinfo unavailable: MIN_CONF_<CLASS>_HOURS "
                         "windows use fixed UTC-7 (an hour off in winter)")
 
     @staticmethod
@@ -535,7 +719,9 @@ class ObjectDetector(BatchMetadataOperator):
         (which overwrote old snapshot JPEGs while ChromaDB kept the old
         description for the duplicate id)."""
         import re
-        pat = re.compile(r"^cam(\d+)_src\d+_[a-zA-Z]+_evt(\d+)\.jpg$")
+        # Also matches the post-2026-09-30 names with a ms timestamp and an
+        # optional collision suffix: cam3_src2_car_evt812_1790000000123[_1].jpg
+        pat = re.compile(r"^cam(\d+)_src\d+_[a-zA-Z_]+?_evt(\d+)(?:_\d+)*\.jpg$")
         seeds = {}
         try:
             for name in os.listdir(SNAPSHOT_DIR):
@@ -563,7 +749,7 @@ class ObjectDetector(BatchMetadataOperator):
             for k in stale:
                 del self._track_seen[k]
         minute_of_day = None
-        if self._person_gate:
+        if self._class_gates:
             lt = datetime.datetime.now(tz=LOCAL_TZ)
             minute_of_day = lt.hour * 60 + lt.minute
         for frame_meta in batch_meta.frame_items:
@@ -582,14 +768,15 @@ class ObjectDetector(BatchMetadataOperator):
                     break
 
             drop_classes = self._drop_classes.get(camera_id, ())
-            person_min = person_min_conf(
-                DETECT_MIN_CONF[2], self._person_gate.get(camera_id), minute_of_day)
+            gates = self._class_gates.get(camera_id) or {}
             for obj_meta in frame_meta.object_items:
                 cls = obj_meta.class_id
-                if cls not in DETECT_CLASSES or cls in drop_classes:
+                label = DETECT_CLASSES.get(cls)
+                if label is None or cls in drop_classes:
                     continue
                 stats.bump("detections")
-                min_conf = person_min if cls == 2 else DETECT_MIN_CONF[cls]
+                min_conf = class_min_conf(DETECT_MIN_CONF[label], gates.get(label),
+                                          minute_of_day)
                 if obj_meta.confidence < min_conf:
                     stats.bump("low_conf")
                     continue
@@ -625,7 +812,6 @@ class ObjectDetector(BatchMetadataOperator):
                 if te is not None:
                     te["emitted"] = True
                 event_id = self._next_event_id(camera_id)
-                label = DETECT_CLASSES[cls]
                 log.info(
                     f"[Detect] cam{camera_id} {label} "
                     f"conf={obj_meta.confidence:.2f} evt={event_id}"
@@ -949,6 +1135,27 @@ def _save_reject_frame(jpeg_bytes, det, description, backend,
         return False
 
 
+def _claim_event_name(base, jpeg_bytes, collection=None, directory=SNAPSHOT_DIR):
+    """Write directory/<name>.jpg for the first name in base, base_1, base_2,
+    ... that is free both on disk (O_EXCL create, so an existing snapshot is
+    never overwritten) and as a Chroma id. Returns the name used."""
+    for i in range(1000):
+        name = base if i == 0 else f"{base}_{i}"
+        if collection is not None:
+            try:
+                if collection.get(ids=[name], include=[])["ids"]:
+                    continue
+            except Exception:
+                pass   # can't check; the on-disk O_EXCL still guarantees no overwrite
+        try:
+            with open(os.path.join(directory, name + ".jpg"), "xb") as fh:
+                fh.write(jpeg_bytes)
+            return name
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"no free snapshot name for {base}")
+
+
 def vlm_worker(event_queue, stats_registry):
     import base64
 
@@ -1030,7 +1237,7 @@ def vlm_worker(event_queue, stats_registry):
             jpeg_b64 = base64.b64encode(jpeg_bytes).decode()
 
             prompt = VLM_PROMPTS.get(
-                det["class_id"], "Describe what you see in one sentence."
+                det["label"], "Describe what you see in one sentence."
             )
             t_vlm = time.time()
             description, backend = _vlm_describe(prompt, jpeg_b64, stats)
@@ -1039,7 +1246,7 @@ def vlm_worker(event_queue, stats_registry):
             # Second-stage verification: if the VLM says the object isn't
             # there, it's a detector false positive — drop it (don't embed
             # or persist an empty-scene "car").
-            if _vlm_says_absent(description, det["class_id"]):
+            if _vlm_says_absent(description, det["label"]):
                 log.info(
                     f"[VLM] cam{camera_id} evt={det['event_id']} REJECT "
                     f"{det['label']} (VLM sees none): {description[:70]} [{backend}]"
@@ -1059,34 +1266,26 @@ def vlm_worker(event_queue, stats_registry):
             embed_resp = _ollama_embed_client.embeddings(model=EMBED_MODEL, prompt=description)
             embedding = embed_resp["embedding"]
 
-            doc_id = (
-                f"cam{camera_id}_src{det['source_id']}_"
-                f"{det['label']}_evt{det['event_id']}"
-            )
+            # Unique id + never-overwrite snapshot: the ms timestamp makes the
+            # id unique across restarts, and the file is created exclusively
+            # (suffix _1, _2, ... on a clash), so a reused event number can
+            # never again replace an old picture while Chroma keeps its text.
+            doc_id = _claim_event_name(
+                f"cam{camera_id}_src{det['source_id']}_{det['label']}_"
+                f"evt{det['event_id']}_{int(round(det['wall_time_s'] * 1000))}",
+                jpeg_bytes, collection)
             snap_name = f"{doc_id}.jpg"
-            snap_path = os.path.join(SNAPSHOT_DIR, snap_name)
-            with open(snap_path, "wb") as f:
-                f.write(jpeg_bytes)
 
-            collection.add(
-                embeddings=[embedding],
-                documents=[description],
-                metadatas=[{
-                    "timestamp_s":  round(float(det["pts_ns"] / 1e9), 3),
-                    "timestamp_ns": det["pts_ns"],
-                    "wall_time":    det["wall_time"],
-                    "wall_time_s":  det["wall_time_s"],
-                    "camera_id":    camera_id,
-                    "source_id":    det["source_id"],
-                    "class_id":     det["class_id"],
-                    "label":        det["label"],
-                    "confidence":   det["confidence"],
-                    "image_path":   f"/snapshots/{snap_name}",
-                    "vlm_backend":  backend,
-                    "vlm_model":    VLLM_MODEL if backend == "vllm" else VLM_MODEL,
-                }],
-                ids=[doc_id],
-            )
+            try:
+                _chroma_add(collection, embedding, description, det, camera_id,
+                            snap_name, backend, doc_id)
+            except Exception:
+                # Don't leave an orphan snapshot with no Chroma record.
+                try:
+                    os.unlink(os.path.join(SNAPSHOT_DIR, snap_name))
+                except OSError:
+                    pass
+                raise
             log.info(f"[ChromaDB] Saved {doc_id} @ {det['wall_time']}")
             stats.record_save(time.time() - t_start)
         except Exception as e:
@@ -1094,6 +1293,42 @@ def vlm_worker(event_queue, stats_registry):
             stats.bump("errors")
         finally:
             stats.write(queue_depth=event_queue.qsize())
+
+
+def _chroma_add(collection, embedding, description, det, camera_id, snap_name,
+                backend, doc_id):
+    collection.add(
+        embeddings=[embedding],
+        documents=[description],
+        metadatas=[{
+            "timestamp_s":  round(float(det["pts_ns"] / 1e9), 3),
+            "timestamp_ns": det["pts_ns"],
+            "wall_time":    det["wall_time"],
+            "wall_time_s":  det["wall_time_s"],
+            "camera_id":    camera_id,
+            "source_id":    det["source_id"],
+            "class_id":     det["class_id"],
+            "label":        det["label"],
+            "confidence":   det["confidence"],
+            "image_path":   f"/snapshots/{snap_name}",
+            "vlm_backend":  backend,
+            "vlm_model":    VLLM_MODEL if backend == "vllm" else VLM_MODEL,
+            "class_map":    CLASS_MAP_VERSION,
+        }],
+        ids=[doc_id],
+    )
+
+
+def _mask_url(url):
+    """'rtsp://user:pw@10.0.0.5:554/x?password=..' -> 'rtsp://10.0.0.5:554/…'."""
+    try:
+        from urllib.parse import urlsplit
+        u = urlsplit(url)
+        host = u.hostname or "?"
+        port = f":{u.port}" if u.port else ""
+        return f"{u.scheme}://{host}{port}/…"
+    except Exception:
+        return "<url hidden>"
 
 
 def _tiler_layout(n):
@@ -1278,7 +1513,23 @@ def main():
     n = len(streams)
     log.info(f"[Main] Starting multi-stream pipeline: {n} camera(s)")
     for s in streams:
-        log.info(f"  cam{s['camera_id']}: {s['url']}")
+        # Host only: RTSP URLs carry credentials (userinfo and/or query string).
+        log.info(f"  cam{s['camera_id']}: {_mask_url(s['url'])} ({s.get('cam_type', 'street')})")
+
+    # Refuse to start on a class-map mismatch (labels vs config was checked at
+    # import; here: labels vs the model's actual output width).
+    width = model_output_width(CLASS_MAP["onnx_path"]) if CLASS_MAP["onnx_path"] else None
+    if width is None:
+        log.warning("[Detect] could not read the model's pred_logits width; "
+                    "class map checked against the config only")
+    elif width != len(CLASS_NAMES):
+        log.error(f"[Detect] REFUSING TO START: model outputs {width} class slots but "
+                  f"{CLASS_MAP['labels_path']} has {len(CLASS_NAMES)} lines")
+        raise SystemExit(2)
+    log.info(f"[Detect] class map ({os.path.basename(CLASS_MAP['labels_path'])}, "
+             f"{len(CLASS_NAMES)} lines = num-detected-classes"
+             f"{'' if width is None else ' = model width'}): {describe_class_map(CLASS_MAP)}")
+    log.info("[Detect] min conf: " + ", ".join(f"{k}={v:.2f}" for k, v in DETECT_MIN_CONF.items()))
 
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
