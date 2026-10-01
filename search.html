@@ -77,7 +77,12 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
 </head>
 <body>
 
-<h1>Vision Search <span id="collTag" style="font-size:0.85rem;color:#e0b43a;"></span></h1>
+<h1>Vision Search <span id="collTag" style="font-size:0.85rem;color:#e0b43a;"></span>
+  <label style="font-size:0.75rem;color:#8890a8;font-weight:400;margin-left:14px;">collection
+    <select id="collSel" title="Object collection to search (adds ?collection= to the page URL)"
+            style="background:#0f1117;color:#e2e4ef;border:1px solid #2d3147;border-radius:6px;padding:3px 6px;font-size:0.8rem;"></select>
+  </label>
+</h1>
 <p style="margin-bottom:16px;">
   <a href="/live" style="color:#4f6ef7; text-decoration:none; font-weight:600;">→ View Live Feeds (HLS)</a>
   &nbsp;|&nbsp;
@@ -194,8 +199,56 @@ function withCollection(params) {
 const statusEl = document.getElementById('status');
 const resultsEl = document.getElementById('results');
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
+// Collection switcher: lists the server's allow-listed collections; picking one
+// reloads the page with ?collection=<name> (the server default drops the param).
+let DEFAULT_COLLECTION = '';
+(async () => {
+  const sel = document.getElementById('collSel');
+  try {
+    const resp = await fetch('/collections');
+    const data = await resp.json();
+    DEFAULT_COLLECTION = data.default || '';
+    for (const c of data.collections || []) {
+      const o = document.createElement('option');
+      o.value = c.name;
+      o.textContent = c.name + (c.name === data.default ? ' (default)' : '')
+                      + (c.count != null ? ` · ${c.count}` : ' · unavailable');
+      sel.appendChild(o);
+    }
+    sel.value = COLLECTION || DEFAULT_COLLECTION;
+  } catch { sel.style.display = 'none'; }
+  sel.addEventListener('change', () => {
+    const q = new URLSearchParams(location.search);
+    if (sel.value && sel.value !== DEFAULT_COLLECTION) q.set('collection', sel.value);
+    else q.delete('collection');
+    location.search = q.toString();
+  });
+})();
+
+// Form state <-> page URL, so a link like
+// /?collection=vision_events_v2&text=silver+SUV reproduces a search.
+const URL_FIELDS = {text: 'text', n: 'maxResults', start_time: 'startTime',
+                    end_time: 'endTime', label: 'label', camera_id: 'camera'};
+const URL_RADIOS = {sort_by: 'sort', search_type: 'search_type', sources: 'sources'};
+function formFromUrl() {
+  const q = new URLSearchParams(location.search);
+  for (const [k, id] of Object.entries(URL_FIELDS))
+    if (q.has(k)) document.getElementById(id).value = q.get(k);
+  for (const [k, name] of Object.entries(URL_RADIOS)) {
+    const r = q.has(k) && document.querySelector(`input[name=${name}][value="${CSS.escape(q.get(k))}"]`);
+    if (r) r.checked = true;
+  }
+}
+function urlFromForm(params) {
+  const q = new URLSearchParams();
+  if (COLLECTION) q.set('collection', COLLECTION);
+  const defaults = {n: '20', sort_by: 'relevance', search_type: 'semantic', sources: 'both'};
+  for (const [k, v] of params) if (k !== 'collection' && v && v !== defaults[k]) q.set(k, v);
+  const qs = q.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+}
+
+async function runSearch() {
   resultsEl.innerHTML = '';
   statusEl.textContent = 'Searching…';
   btn.disabled = true;
@@ -212,6 +265,7 @@ form.addEventListener('submit', async (e) => {
     sources:     document.querySelector('input[name=sources]:checked').value,
   });
 
+  urlFromForm(params);
   try {
     const resp = await fetch('/query?' + withCollection(params));
     const data = await resp.json();
@@ -220,16 +274,24 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     const results = data.results || [];
-    statusEl.textContent = results.length
+    const what = params.get('text') ? '' : ' (newest; type a description to search)';
+    statusEl.textContent = (results.length
       ? `${results.length} result${results.length === 1 ? '' : 's'}`
-      : 'No results found.';
+      : 'No results found.') + (data.collection ? ` in ${data.collection}` : '') + what;
     resultsEl.innerHTML = results.map(card).join('');
   } catch (err) {
     statusEl.textContent = 'Request failed: ' + err.message;
   } finally {
     btn.disabled = false;
   }
-});
+}
+
+form.addEventListener('submit', (e) => { e.preventDefault(); runSearch(); });
+
+// On load: restore any search from the URL and run it, so the page shows
+// pictures right away (empty text = browse newest) instead of a blank grid.
+formFromUrl();
+runSearch();
 
 function fmtTime(iso) {
   if (!iso) return '—';

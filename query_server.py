@@ -14,6 +14,7 @@ by side without changing the default view.
 Endpoints:
     GET /               search UI (search.html)
     GET /query          JSON search results
+    GET /collections    allow-listed collections + counts (page switcher)
     GET /snapshots/...  snapshot images
 """
 
@@ -310,7 +311,23 @@ def count(
 
 @app.get("/")
 def serve_search():
-    return FileResponse(SEARCH_HTML)
+    # no-cache: browsers otherwise heuristically cache the page and keep
+    # running stale JS after search.html changes.
+    return FileResponse(SEARCH_HTML, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/collections")
+def collections():
+    """Allow-listed object collections (for the page's switcher) with counts;
+    count is None if the collection doesn't exist / Chroma is unreachable."""
+    out = []
+    for name in sorted(ALLOWED_COLLECTIONS):
+        try:
+            cnt = chroma_client.get_collection(name).count()
+        except Exception:
+            cnt = None
+        out.append({"name": name, "count": cnt})
+    return {"default": COLLECTION_NAME, "collections": out}
 
 
 @app.get("/query")
