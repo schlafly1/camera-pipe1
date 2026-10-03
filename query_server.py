@@ -4,7 +4,8 @@ FastAPI server to query ChromaDB vision events by natural language.
 Serves the search UI at / and static snapshots at /snapshots/*.
 
 Usage:
-    python3 query_server.py                       # :8001, collection vision_events
+    python3 query_server.py                       # :8001, collection $QUERY_COLLECTION,
+                                                  # else $CHROMA_COLLECTION, else vision_events
     QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 python3 query_server.py
 
 Any page/endpoint also takes ?collection=<name> (allow-listed below), e.g.
@@ -39,7 +40,10 @@ CHROMADB_HOST  = "localhost"
 CHROMADB_PORT  = 8000
 # Default per-object collection (search substrate). ?collection= may pick
 # another one from ALLOWED_COLLECTIONS (side-by-side review of a rebuild).
-COLLECTION_NAME = os.environ.get("QUERY_COLLECTION", "vision_events")
+# Follows CHROMA_COLLECTION (the collection pipeline_multi.py writes to)
+# unless QUERY_COLLECTION overrides it.
+COLLECTION_NAME = (os.environ.get("QUERY_COLLECTION")
+                   or os.environ.get("CHROMA_COLLECTION", "vision_events"))
 ALLOWED_COLLECTIONS = {COLLECTION_NAME, "vision_events", "vision_events_v2"} | {
     c.strip() for c in os.environ.get("QUERY_COLLECTIONS_EXTRA", "").split(",") if c.strip()}
 QUERY_PORT     = int(os.environ.get("QUERY_PORT", "8001"))

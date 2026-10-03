@@ -55,7 +55,9 @@ Other collections side by side: add `?collection=<name>` to the page URL
 the page passes it on to `/query` and `/count`. Allowed names:
 `vision_events`, `vision_events_v2`, `QUERY_COLLECTION`, plus
 `QUERY_COLLECTIONS_EXTRA` (comma list). The default view (no parameter) is
-`QUERY_COLLECTION`, default `vision_events`. A second instance also works:
+`QUERY_COLLECTION`, else `CHROMA_COLLECTION` (the collection pipeline_multi.py
+writes to), else `vision_events`; Thor .env sets `CHROMA_COLLECTION=vision_events_v2`
+(since 2026-10-03). A second instance also works:
 `QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 .venv/bin/python3 query_server.py`.
 An empty search ("browse") is sorted by time on the server, newest first
 (`sort_by=time_asc` for oldest first).
@@ -332,9 +334,12 @@ Test first with `--dry-run --limit 3 --no-copy` (no Chroma writes; state in
 /tmp). View the result next to the live index at
 http://thor2:8001/?collection=vision_events_v2, or run a second server:
 `QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 .venv/bin/python3
-query_server.py`. To make v2 the default later, set
-`QUERY_COLLECTION=vision_events_v2` for query_server and change `COLLECTION` in pipeline_multi.py
-(new live events keep going to vision_events until then) - not done yet, pending review.
+query_server.py`. v2 became the default on 2026-10-03: `CHROMA_COLLECTION=vision_events_v2`
+in .env points both pipeline_multi.py (writes) and query_server.py (default view) at it;
+the post-fix live events saved to vision_events after the rebuild's live copy stopped
+(2026-10-02 04:10 PT on) were copied in as-is. vision_events is kept unchanged and still
+browsable via ?collection=vision_events. Rollback: remove the key (or set it to
+vision_events) and restart.
 
 ## Evals
 

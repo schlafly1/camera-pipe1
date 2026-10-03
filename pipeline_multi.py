@@ -45,7 +45,10 @@ except Exception:
 # ── Config ────────────────────────────────────────────────────────────────────
 CHROMADB_HOST   = os.environ.get("CHROMADB_HOST", "localhost")
 CHROMADB_PORT   = int(os.environ.get("CHROMADB_PORT", "8000"))
-COLLECTION      = "vision_events"
+# Chroma collection the VLM workers write events to (the search index).
+# Thor .env sets CHROMA_COLLECTION=vision_events_v2 (2026-10-03 switch);
+# query_server.py defaults to the same setting.
+COLLECTION      = os.environ.get("CHROMA_COLLECTION", "vision_events")
 VLM_MODEL       = os.environ.get("VLM_MODEL", "gemma4:26b")
 # Ollama's default context (262144, Gemma 4's max) makes its automatic
 # parallel-slot sizing pick num_parallel=1 regardless of OLLAMA_NUM_PARALLEL,
@@ -1171,14 +1174,14 @@ def vlm_worker(event_queue, stats_registry):
             time.sleep(5)
     if VLM_BACKEND == "vllm":
         log.info(
-            f"[VLM Worker] Ready (backend=vllm model={VLLM_MODEL} url={VLLM_URL}; "
+            f"[VLM Worker] Ready (collection={COLLECTION} backend=vllm model={VLLM_MODEL} url={VLLM_URL}; "
             f"fallback=ollama model={VLM_MODEL} think={OLLAMA_THINK} "
             f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
             f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
         )
     else:
         log.info(
-            f"[VLM Worker] Ready (model={VLM_MODEL} think={OLLAMA_THINK} "
+            f"[VLM Worker] Ready (collection={COLLECTION} model={VLM_MODEL} think={OLLAMA_THINK} "
             f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
             f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
         )
