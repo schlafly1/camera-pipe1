@@ -66,6 +66,17 @@ EMBED_MODEL     = "nomic-embed-text"
 # with the ones already stored in ChromaDB.
 EMBED_HOST      = (os.environ.get("EMBED_HOST") or os.environ.get("OLLAMA_HOST") or "").strip() or None
 
+# nomic-embed-text was trained with task prefixes ("search_document: " /
+# "search_query: "). Off by default so the live vision_events_v2 index
+# (built without prefixes) stays comparable. Set EMBED_PREFIX_STYLE=nomic
+# when pointing CHROMA_COLLECTION at a prefixed collection (e.g. v3), or
+# set EMBED_DOC_PREFIX explicitly. See tools/reembed_nomic_prefixes.py.
+_EMBED_PREFIX_STYLE = os.environ.get("EMBED_PREFIX_STYLE", "none").strip().lower()
+if _EMBED_PREFIX_STYLE in ("nomic", "nomic-embed-text"):
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "search_document: ")
+else:
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "")
+
 # ── VLM backend switch (notes/vllm_cutover_design.md) ─────────────────────────
 # VLM_BACKEND=ollama (default) keeps every description call on OLLAMA_HOST.
 # VLM_BACKEND=vllm sends description calls to the OpenAI-compatible vLLM
@@ -1177,13 +1188,13 @@ def vlm_worker(event_queue, stats_registry):
             f"[VLM Worker] Ready (collection={COLLECTION} backend=vllm model={VLLM_MODEL} url={VLLM_URL}; "
             f"fallback=ollama model={VLM_MODEL} think={OLLAMA_THINK} "
             f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
-            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
+            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'} prefix_style={_EMBED_PREFIX_STYLE!r})"
         )
     else:
         log.info(
             f"[VLM Worker] Ready (collection={COLLECTION} model={VLM_MODEL} think={OLLAMA_THINK} "
             f"host={os.environ.get('OLLAMA_HOST') or 'ollama default'}; "
-            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'})"
+            f"embed={EMBED_MODEL} host={EMBED_HOST or 'ollama default'} prefix_style={_EMBED_PREFIX_STYLE!r})"
         )
 
     while True:
@@ -1266,7 +1277,8 @@ def vlm_worker(event_queue, stats_registry):
                 f"{det['label']}: {description}"
             )
 
-            embed_resp = _ollama_embed_client.embeddings(model=EMBED_MODEL, prompt=description)
+            embed_prompt = (EMBED_DOC_PREFIX + description) if EMBED_DOC_PREFIX else description
+            embed_resp = _ollama_embed_client.embeddings(model=EMBED_MODEL, prompt=embed_prompt)
             embedding = embed_resp["embedding"]
 
             # Unique id + never-overwrite snapshot: the ms timestamp makes the

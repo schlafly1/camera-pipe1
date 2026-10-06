@@ -9,8 +9,8 @@ Usage:
     QUERY_PORT=8002 QUERY_COLLECTION=vision_events_v2 python3 query_server.py
 
 Any page/endpoint also takes ?collection=<name> (allow-listed below), e.g.
-http://thor2:8001/?collection=vision_events_v2 shows the rebuilt index side
-by side without changing the default view.
+http://thor2:8001/?collection=vision_events_v3 shows the nomic-prefix index
+side by side without changing the default view.
 
 Endpoints:
     GET /               search UI (search.html)
@@ -44,7 +44,8 @@ CHROMADB_PORT  = 8000
 # unless QUERY_COLLECTION overrides it.
 COLLECTION_NAME = (os.environ.get("QUERY_COLLECTION")
                    or os.environ.get("CHROMA_COLLECTION", "vision_events"))
-ALLOWED_COLLECTIONS = {COLLECTION_NAME, "vision_events", "vision_events_v2"} | {
+ALLOWED_COLLECTIONS = {COLLECTION_NAME, "vision_events", "vision_events_v2",
+                       "vision_events_v3"} | {
     c.strip() for c in os.environ.get("QUERY_COLLECTIONS_EXTRA", "").split(",") if c.strip()}
 QUERY_PORT     = int(os.environ.get("QUERY_PORT", "8001"))
 SEGMENT_COLLECTION = "vision_segments"  # per-10/30s "what happened" summaries (option c)
@@ -53,6 +54,20 @@ OLLAMA_MODEL   = "nomic-embed-text"
 # (same resolution as pipeline_multi.py, so queries and stored events always
 # use the same embedder).
 EMBED_HOST     = (os.environ.get("EMBED_HOST") or os.environ.get("OLLAMA_HOST") or "").strip() or None
+# nomic-embed-text task prefixes. Live default stays "none" (v2 was built
+# without them). vision_events_v3 (and any name in QUERY_PREFIXED_COLLECTIONS)
+# always get search_query: on semantic search. When EMBED_PREFIX_STYLE=nomic,
+# the default CHROMA/QUERY collection also uses prefixes (for the later cutover).
+_EMBED_PREFIX_STYLE = os.environ.get("EMBED_PREFIX_STYLE", "none").strip().lower()
+if _EMBED_PREFIX_STYLE in ("nomic", "nomic-embed-text"):
+    EMBED_QUERY_PREFIX = os.environ.get("EMBED_QUERY_PREFIX", "search_query: ")
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "search_document: ")
+else:
+    EMBED_QUERY_PREFIX = os.environ.get("EMBED_QUERY_PREFIX", "")
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "")
+PREFIXED_COLLECTIONS = {
+    c.strip() for c in os.environ.get(
+        "QUERY_PREFIXED_COLLECTIONS", "vision_events_v3").split(",") if c.strip()}
 SNAPSHOT_DIR   = "snapshots"
 SEARCH_HTML    = "search.html"
 
@@ -68,7 +83,26 @@ app.mount("/hls", StaticFiles(directory="/tmp/hls", html=True), name="hls")
 
 chroma_client = chromadb.HttpClient(host=CHROMADB_HOST, port=CHROMADB_PORT)
 embed_client  = ollama.Client(host=EMBED_HOST)
-print(f"[query_server] embeddings: {OLLAMA_MODEL} @ {EMBED_HOST or 'ollama default'}", flush=True)
+print(f"[query_server] embeddings: {OLLAMA_MODEL} @ {EMBED_HOST or 'ollama default'} "
+      f"style={_EMBED_PREFIX_STYLE!r} prefixed={sorted(PREFIXED_COLLECTIONS)}", flush=True)
+
+
+def _collection_uses_nomic_prefixes(coll_name: str) -> bool:
+    """True when stored vectors in this object collection used document prefixes."""
+    if coll_name in PREFIXED_COLLECTIONS:
+        return True
+    if _EMBED_PREFIX_STYLE in ("nomic", "nomic-embed-text") and coll_name == COLLECTION_NAME:
+        return True
+    return False
+
+
+def _embed_query(text: str, coll_name: str):
+    """Embed a search query; prepend search_query: when the target collection is prefixed."""
+    prefix = ""
+    if _collection_uses_nomic_prefixes(coll_name):
+        prefix = EMBED_QUERY_PREFIX or "search_query: "
+    prompt = (prefix + text) if prefix else text
+    return embed_client.embeddings(model=OLLAMA_MODEL, prompt=prompt)["embedding"]
 
 
 def parse_local_dt(s: str):
@@ -355,11 +389,13 @@ def query(
     want_objects  = sources in ("both", "objects")
     want_segments = sources in ("both", "segments") and not label
 
-    # Embed once (semantic) and reuse for both collections.
+    # Resolve object collection early so the query embedding can use the
+    # matching nomic prefix (v3) or none (v2 / legacy).
+    coll_name = (collection or COLLECTION_NAME).strip()
     embedding = None
     if t and search_type != "exact":
         try:
-            embedding = embed_client.embeddings(model=OLLAMA_MODEL, prompt=t)["embedding"]
+            embedding = _embed_query(t, coll_name)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Ollama error: {e}")
 
@@ -375,11 +411,17 @@ def query(
             raise HTTPException(status_code=503, detail=f"ChromaDB query error: {e}")
 
     if want_segments:
-        # The segments collection may not exist yet (sidecar never run) — skip quietly.
-        try:
-            seg_col = chroma_client.get_collection(SEGMENT_COLLECTION)
-        except Exception:
+        # vision_segments (when present) was built without nomic prefixes. Do
+        # not mix it into a prefixed object-collection search — the query
+        # vector would be in the wrong space. Skip quietly; a matching
+        # vision_segments_v3 can be added later.
+        if _collection_uses_nomic_prefixes(coll_name):
             seg_col = None
+        else:
+            try:
+                seg_col = chroma_client.get_collection(SEGMENT_COLLECTION)
+            except Exception:
+                seg_col = None
         if seg_col is not None:
             where_seg = build_where_segment(start_time, end_time, camera_id)
             try:
@@ -389,7 +431,8 @@ def query(
             except Exception as e:
                 raise HTTPException(status_code=503, detail=f"ChromaDB segment query error: {e}")
 
-    # Merge/sort across both collections. Distances are comparable (same embedder).
+    # Merge/sort across collections. Distances are comparable when both used
+    # the same embed prompt style (unprefixed objects+segments).
     if sort_by == "time_desc":
         output.sort(key=lambda x: x["wall_time_s"] or 0, reverse=True)
     elif sort_by == "time_asc":

@@ -44,6 +44,11 @@ COLLECTION    = os.environ.get("SEGMENT_COLLECTION", "vision_segments")
 EMBED_MODEL   = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 # Same host resolution as pipeline_multi.py: EMBED_HOST, else OLLAMA_HOST.
 EMBED_HOST    = (os.environ.get("EMBED_HOST") or os.environ.get("OLLAMA_HOST") or "").strip() or None
+_STYLE = os.environ.get("EMBED_PREFIX_STYLE", "none").strip().lower()
+if _STYLE in ("nomic", "nomic-embed-text"):
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "search_document: ")
+else:
+    EMBED_DOC_PREFIX = os.environ.get("EMBED_DOC_PREFIX", "")
 _embed_client = ollama.Client(host=EMBED_HOST)
 
 
@@ -67,7 +72,8 @@ class VLMChromaSink:
         if not desc:
             return
         try:
-            emb = _embed_client.embeddings(model=EMBED_MODEL, prompt=desc)["embedding"]
+            prompt = (EMBED_DOC_PREFIX + desc) if EMBED_DOC_PREFIX else desc
+            emb = _embed_client.embeddings(model=EMBED_MODEL, prompt=prompt)["embedding"]
             now = datetime.datetime.now(tz=LOCAL_TZ)
             doc_id = f"seg_cam{cam}_{int(now.timestamp() * 1000)}"
             self.collection.add(

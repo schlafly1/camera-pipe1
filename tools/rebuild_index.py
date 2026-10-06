@@ -256,10 +256,12 @@ class Rebuilder:
         raise KeyboardInterrupt
 
     def embed(self, text):
+        # Honor pipeline EMBED_DOC_PREFIX when EMBED_PREFIX_STYLE=nomic.
+        prompt = (pm.EMBED_DOC_PREFIX + text) if getattr(pm, "EMBED_DOC_PREFIX", "") else text
         delay = 5
         while True:
             try:
-                return pm._ollama_embed_client.embeddings(model=pm.EMBED_MODEL, prompt=text)["embedding"]
+                return pm._ollama_embed_client.embeddings(model=pm.EMBED_MODEL, prompt=prompt)["embedding"]
             except Exception as e:
                 if _stop:
                     raise KeyboardInterrupt
