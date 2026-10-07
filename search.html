@@ -34,11 +34,12 @@ button[type=submit] {
 }
 button[type=submit]:hover { background: #6a83f9; }
 button[type=submit]:disabled { opacity: 0.5; cursor: default; }
-#countBtn {
+#countBtn, #todayBtn {
   background: #2d3147; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
   padding: 9px 26px; font-size: 0.9rem; cursor: pointer; white-space: nowrap; height: 36px;
 }
-#countBtn:hover { background: #3a3f5c; }
+#countBtn:hover, #todayBtn:hover { background: #3a3f5c; }
+#todayBtn { padding: 9px 16px; }
 #countBtn:disabled { opacity: 0.5; cursor: default; }
 #countPanel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; display: none; }
 #countPanel h2 { font-size: 1rem; margin-bottom: 14px; color: #fff; }
@@ -133,11 +134,15 @@ button[type=submit]:disabled { opacity: 0.5; cursor: default; }
   <div class="row">
     <div class="field">
       <label>From (PDT)</label>
-      <input type="datetime-local" id="startTime">
+      <input type="datetime-local" id="startTime" step="1">
     </div>
     <div class="field">
       <label>To (PDT)</label>
-      <input type="datetime-local" id="endTime">
+      <input type="datetime-local" id="endTime" step="1">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button type="button" id="todayBtn" title="Set From/To to cover all of today (PDT) and search">Today</button>
     </div>
     <div class="field" style="margin-left:8px">
       <label>Search type</label>
@@ -287,6 +292,15 @@ async function runSearch() {
 }
 
 form.addEventListener('submit', (e) => { e.preventDefault(); runSearch(); });
+
+// "Today": From/To span the whole current day in Pacific time (what the
+// server assumes for these fields), regardless of the browser's timezone.
+document.getElementById('todayBtn').addEventListener('click', () => {
+  const day = new Date().toLocaleDateString('en-CA', {timeZone: 'America/Los_Angeles'});
+  document.getElementById('startTime').value = `${day}T00:00:00`;
+  document.getElementById('endTime').value   = `${day}T23:59:59`;
+  runSearch();
+});
 
 // On load: restore any search from the URL and run it, so the page shows
 // pictures right away (empty text = browse newest) instead of a blank grid.
