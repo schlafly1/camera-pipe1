@@ -9,6 +9,7 @@ cd "$(dirname "$0")"
 echo "==> Stopping pipeline and query server..."
 pkill -f '^[^ ]*python3?( -u)? pipeline_multi\.py' 2>/dev/null || true
 pkill -f '^[^ ]*python3?( -u)? query_server\.py'   2>/dev/null || true
+pkill -f '^[^ ]*python3?( -u)? vehicle_reid_worker\.py' 2>/dev/null || true
 
 if [ "${1:-}" = "--all" ]; then
     echo "==> Stopping chromadb..."

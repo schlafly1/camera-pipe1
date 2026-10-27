@@ -95,14 +95,17 @@ echo "==> Stopping any old pipeline/query processes..."
 # agent whose command line merely mentions these file names is never matched.
 PIPE_PAT='^[^ ]*python3?( -u)? pipeline_multi\.py'
 QUERY_PAT='^[^ ]*python3?( -u)? query_server\.py'
+REID_PAT='^[^ ]*python3?( -u)? vehicle_reid_worker\.py'
 pkill -f "$PIPE_PAT"  2>/dev/null || true
 pkill -f "$QUERY_PAT" 2>/dev/null || true
+pkill -f "$REID_PAT"  2>/dev/null || true
 for i in $(seq 1 15); do
-    pgrep -f "$PIPE_PAT" >/dev/null || pgrep -f "$QUERY_PAT" >/dev/null || break
+    pgrep -f "$PIPE_PAT" >/dev/null || pgrep -f "$QUERY_PAT" >/dev/null || pgrep -f "$REID_PAT" >/dev/null || break
     sleep 1
 done
 pkill -9 -f "$PIPE_PAT"  2>/dev/null || true
 pkill -9 -f "$QUERY_PAT" 2>/dev/null || true
+pkill -9 -f "$REID_PAT"  2>/dev/null || true
 sleep 1
 
 echo "==> Launching pipeline_multi.py (logs/pipeline-console.log)..."
@@ -111,9 +114,12 @@ nohup "$PY" -u pipeline_multi.py > logs/pipeline-console.log 2>&1 &
 echo "==> Launching query_server.py (logs/query_server.log)..."
 nohup "$PY" -u query_server.py > logs/query_server.log 2>&1 &
 
+echo "==> Launching vehicle_reid_worker.py (logs/vehicle_reid_worker.log)..."
+nohup "$PY" -u vehicle_reid_worker.py > logs/vehicle_reid_worker.log 2>&1 &
+
 sleep 3
 ok=1
-for proc in pipeline_multi query_server; do
+for proc in pipeline_multi query_server vehicle_reid_worker; do
     if pgrep -f "^[^ ]*python3?( -u)? $proc\.py" >/dev/null; then
         echo "    $proc.py running"
     else
