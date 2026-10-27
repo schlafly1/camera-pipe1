@@ -109,6 +109,35 @@ def _parse_gate(cam, cname):
     return conf, hours
 
 
+
+
+def derive_main_urls(sub_url, explicit_main_url=""):
+    """Return candidate main-stream RTSP URLs (tuple of str) for a camera.
+    RTSP_MAIN_URL_CAMn overrides automatic derivation; setting it to
+    'none'/'off'/'0'/'false' disables the main stream for that camera.
+    When unset, derives main stream URLs from known substream URL patterns:
+      - Reolink ('_sub'): tries h265Preview_.._main first (full 4608x1728), then _main
+      - Dahua/Amcrest ('subtype=1'): replaces with 'subtype=0'
+      - Otherwise: () (no separate main stream)
+    """
+    exp = (explicit_main_url or "").strip()
+    if exp:
+        if exp.lower() in ("none", "off", "0", "false"):
+            return ()
+        return (exp,)
+    u = (sub_url or "").strip()
+    if not u:
+        return ()
+    if "_sub" in u:
+        m = u.replace("_sub", "_main")
+        if "h264Preview" in m:
+            return (m.replace("h264Preview", "h265Preview"), m)
+        return (m,)
+    if "subtype=1" in u:
+        return (u.replace("subtype=1", "subtype=0"),)
+    return ()
+
+
 def load_streams():
     """
     Load cameras from RTSP_URL_CAM1, RTSP_URL_CAM2, ... in .env.
@@ -157,10 +186,14 @@ def load_streams():
             if conf is not None:
                 gates[cname] = (conf, hours)
         min_conf_person, min_conf_person_hours = gates.get("person", (None, None))
+        explicit_main = os.environ.get(f"RTSP_MAIN_URL_CAM{cam}", "").strip()
+        main_urls = () if (is_office and not explicit_main) else derive_main_urls(url, explicit_main)
         streams.append({
             "camera_id": cam,
             "source_index": cam - 1,
             "url": url,
+            "main_urls": main_urls,
+            "main_url": main_urls[0] if main_urls else None,
             "rtsp_transport": transport,
             "is_office": is_office,
             "cam_type": cam_type,

@@ -14,6 +14,7 @@ pipeline refuses to start if the labels file, num-detected-classes and the
 model's pred_logits width disagree.
 """
 
+import collections
 import datetime
 import glob
 import json
@@ -127,6 +128,22 @@ SAVE_INTERVAL   = float(os.environ.get("SAVE_INTERVAL", "30.0"))
 # passing traffic is captured, but a persistent detection (parked car or a
 # false positive on shadows/foliage) can't flood the VLM queue every frame.
 STREET_SAVE_INTERVAL = float(os.environ.get("STREET_SAVE_INTERVAL", "8.0"))
+# When VLM rejects a street-cam false positive, release the camera-level street
+# throttle immediately so real traffic right behind it is never blocked, while
+# suppressing repeat low-confidence static detections at the same rejected bbox
+# for STREET_REJECT_BBOX_TTL_S seconds.
+STREET_REJECT_BBOX_TTL_S = float(os.environ.get("STREET_REJECT_BBOX_TTL_S", "30.0"))
+MAIN_RING_ENABLED    = os.environ.get("MAIN_RING_ENABLED", "1") != "0"
+MAIN_RING_INTERVAL_S = float(os.environ.get("MAIN_RING_INTERVAL_S", "0.4"))
+MAIN_RING_SECONDS    = float(os.environ.get("MAIN_RING_SECONDS", "5.2"))
+MAIN_RING_MAX_GAP_S  = float(os.environ.get("MAIN_RING_MAX_GAP_S", "3.0"))
+MAIN_JPEG_QUALITY    = int(os.environ.get("MAIN_JPEG_QUALITY", "92"))
+VEHICLE_CLASSES      = ("car", "bicycle")
+VEHICLE_SUB_PAD      = float(os.environ.get("VEHICLE_SUB_PAD", "0.12"))
+VEHICLE_MAIN_PAD     = float(os.environ.get("VEHICLE_MAIN_PAD", "0.15"))
+VEHICLE_SNAPSHOT_DIR = os.environ.get("VEHICLE_SNAPSHOT_DIR", os.path.join("snapshots", "vehicles"))
+VEHICLE_EVENTS_LOG   = os.environ.get("VEHICLE_EVENTS_LOG", os.path.join(os.environ.get("LOG_DIR", "logs"), "vehicle_events.jsonl"))
+_vehicle_log_lock    = threading.Lock()
 VLM_QUEUE_MAX   = int(os.environ.get("VLM_QUEUE_MAX", "12"))
 # Ollama on Spark now runs with OLLAMA_NUM_PARALLEL=2 (see VLM_NUM_CTX above
 # for why that only became viable once num_ctx was capped) — matching worker
@@ -565,6 +582,7 @@ class StatsTracker:
         "stale_skip", "no_frame", "stale_frame_skip", "stale_frame",
         "vlm_reject", "errors", "saves",
         "vlm_calls_vllm", "vlm_calls_ollama", "vllm_fallback", "reject_frames_saved",
+        "vehicle_saves", "static_fp_throttled",
     )
 
     def __init__(self, camera_id, path, cam_type="street"):
@@ -579,11 +597,21 @@ class StatsTracker:
         self._latencies = []
         self._vlm_call_lat = []      # pure VLM round-trip seconds (last N)
         self._vlm_backend_last = None
+        self._main_last_frame = None
+        self._main_frames = 0
+        self._main_buffered = 0
+        self._main_shape = None
 
     def record_frame(self, now):
         # No lock: single float/int store per frame, torn reads are harmless.
         self._last_frame = now
         self._frames += 1
+
+    def record_main_frame(self, now, shape, buffered):
+        self._main_last_frame = now
+        self._main_frames += 1
+        self._main_shape = list(shape) if shape else None
+        self._main_buffered = int(buffered)
 
     def bump(self, key):
         with self._lock:
@@ -630,6 +658,10 @@ class StatsTracker:
             "vlm_call_ms_avg": round(sum(call_lats) / len(call_lats) * 1000) if call_lats else None,
             "vlm_call_ms_max": round(max(call_lats) * 1000) if call_lats else None,
             "vlm_backend_last": backend_last,
+            "main_ring_frames_total": self._main_frames,
+            "main_ring_buffered":     self._main_buffered,
+            "main_ring_last_frame_at": round(self._main_last_frame, 3) if self._main_last_frame else None,
+            "main_ring_shape":        self._main_shape,
         }
         for k in self._COUNTER_KEYS:
             data[f"{k}_total"] = counts[k]
@@ -676,18 +708,269 @@ def stats_heartbeat(stats_registry, event_queue):
         stats_registry.write_all(queue_depth=event_queue.qsize())
 
 
+# ── BBox & Main-Stream Ring Buffer helpers ────────────────────────────────────
+def _extract_bbox_norm(obj_meta, frame_meta=None):
+    """Return [x1, y1, x2, y2] normalized to [0.0, 1.0] in mux coordinates,
+    or None if rect_params is absent or degenerate."""
+    try:
+        rp = getattr(obj_meta, "rect_params", None)
+        if rp is None:
+            return None
+        left = float(rp.left)
+        top = float(rp.top)
+        w = float(rp.width)
+        h = float(rp.height)
+        if w <= 0 or h <= 0:
+            return None
+        pw = float(getattr(frame_meta, "pipeline_width", 0) or FRAME_W)
+        ph = float(getattr(frame_meta, "pipeline_height", 0) or FRAME_H)
+        if pw <= 0:
+            pw = float(FRAME_W)
+        if ph <= 0:
+            ph = float(FRAME_H)
+        x1 = max(0.0, min(1.0, left / pw))
+        y1 = max(0.0, min(1.0, top / ph))
+        x2 = max(0.0, min(1.0, (left + w) / pw))
+        y2 = max(0.0, min(1.0, (top + h) / ph))
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+    except Exception:
+        return None
+
+
+def _bbox_iou(a, b):
+    if not a or not b or len(a) < 4 or len(b) < 4:
+        return 0.0
+    ix1 = max(a[0], b[0])
+    iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2])
+    iy2 = min(a[3], b[3])
+    iw = max(0.0, ix2 - ix1)
+    ih = max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    denom = area_a + area_b - inter
+    return (inter / denom) if denom > 0.0 else 0.0
+
+
+def _bbox_center_dist(a, b):
+    if not a or not b or len(a) < 4 or len(b) < 4:
+        return 1.0
+    cax = 0.5 * (a[0] + a[2])
+    cay = 0.5 * (a[1] + a[3])
+    cbx = 0.5 * (b[0] + b[2])
+    cby = 0.5 * (b[1] + b[3])
+    return ((cax - cbx) ** 2 + (cay - cby) ** 2) ** 0.5
+
+
+def _norm_to_px_box(bbox_norm, w, h, pad_frac=0.0):
+    if not bbox_norm or len(bbox_norm) < 4 or w <= 0 or h <= 0:
+        return None
+    x1 = bbox_norm[0] * w
+    y1 = bbox_norm[1] * h
+    x2 = bbox_norm[2] * w
+    y2 = bbox_norm[3] * h
+    if pad_frac > 0.0:
+        bw = x2 - x1
+        bh = y2 - y1
+        px = max(bw * pad_frac, w * 0.015, 8.0)
+        py = max(bh * pad_frac, h * 0.015, 8.0)
+        x1 -= px
+        y1 -= py
+        x2 += px
+        y2 += py
+    ix1 = max(0, min(int(w) - 1, int(round(x1))))
+    iy1 = max(0, min(int(h) - 1, int(round(y1))))
+    ix2 = max(ix1 + 1, min(int(w), int(round(x2))))
+    iy2 = max(iy1 + 1, min(int(h), int(round(y2))))
+    return [ix1, iy1, ix2, iy2]
+
+
+class MainStreamRingBuffer:
+    """Persistent low-FPS full-resolution RTSP ring buffer for street cameras
+    (cam3, cam4, cam5). Keeps the RTSP TCP session open continuously so there
+    is zero RTSP handshake / keyframe wait when a vehicle is detected."""
+
+    def __init__(self, streams, stats_registry=None,
+                 interval_s=MAIN_RING_INTERVAL_S,
+                 window_s=MAIN_RING_SECONDS):
+        self._stats = stats_registry
+        self._interval_s = max(0.1, float(interval_s))
+        self._maxlen = max(4, int(round(float(window_s) / self._interval_s)) + 1)
+        self._lock = threading.Lock()
+        self._rings = {}
+        self._urls = {}
+        self._good_idx = {}
+        self._stop = False
+        self._threads = []
+        for s in streams:
+            cam = s["camera_id"]
+            m_urls = tuple(s.get("main_urls") or ())
+            if m_urls:
+                self._rings[cam] = collections.deque(maxlen=self._maxlen)
+                self._urls[cam] = m_urls
+
+    def start(self):
+        if not MAIN_RING_ENABLED or not self._urls:
+            return
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            "rtsp_transport;tcp|stimeout;5000000",
+        )
+        import cv2
+        cv2.setNumThreads(1)
+        for cam in sorted(self._urls):
+            t = threading.Thread(
+                target=self._reader_loop,
+                args=(cam,),
+                name=f"main-ring-cam{cam}",
+                daemon=True,
+            )
+            t.start()
+            self._threads.append(t)
+
+    def stop(self):
+        self._stop = True
+
+    def has_camera(self, camera_id):
+        return camera_id in self._rings
+
+    def put_frame(self, camera_id, ts, frame_bgr):
+        """Insert a frame (also usable directly in unit tests)."""
+        if camera_id not in self._rings:
+            self._rings[camera_id] = collections.deque(maxlen=self._maxlen)
+        with self._lock:
+            self._rings[camera_id].append((float(ts), frame_bgr))
+            buf_len = len(self._rings[camera_id])
+        if self._stats is not None:
+            try:
+                self._stats.for_camera(camera_id).record_main_frame(
+                    ts, frame_bgr.shape[:2], buf_len
+                )
+            except KeyError:
+                pass
+
+    def get_window(self, camera_id, t_start, t_end):
+        ring = self._rings.get(camera_id)
+        if not ring:
+            return []
+        with self._lock:
+            items = list(ring)
+        return [(ts, frm) for ts, frm in items if t_start <= ts <= t_end]
+
+    def get_closest(self, camera_id, target_ts, max_gap_s=MAIN_RING_MAX_GAP_S):
+        ring = self._rings.get(camera_id)
+        if not ring:
+            return None, None, None
+        with self._lock:
+            items = list(ring)
+        if not items:
+            return None, None, None
+        best_ts, best_frm = min(items, key=lambda x: abs(x[0] - target_ts))
+        gap = abs(best_ts - target_ts)
+        if max_gap_s is not None and gap > max_gap_s:
+            return None, None, gap
+        return best_ts, best_frm, gap
+
+    def _open_capture(self, cam):
+        import cv2
+        cands = list(self._urls[cam])
+        pref = self._good_idx.get(cam)
+        order = ([pref] + [i for i in range(len(cands)) if i != pref]
+                 if pref is not None else list(range(len(cands))))
+        params = []
+        if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+            params.extend([cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000])
+        if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+            params.extend([cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000])
+        for idx in order:
+            u = cands[idx]
+            try:
+                cap = (cv2.VideoCapture(u, cv2.CAP_FFMPEG, params)
+                       if params else cv2.VideoCapture(u, cv2.CAP_FFMPEG))
+                if cap.isOpened():
+                    self._good_idx[cam] = idx
+                    return cap, u
+                cap.release()
+            except Exception:
+                pass
+        return None, None
+
+    def _reader_loop(self, cam):
+        while not self._stop:
+            cap, used_url = self._open_capture(cam)
+            if cap is None:
+                log.warning(
+                    f"[MainRing] cam{cam}: open failed, retrying in {RECONNECT_INTERVAL}s"
+                )
+                time.sleep(RECONNECT_INTERVAL)
+                continue
+            logged_connect = False
+            last_keep = 0.0
+            last_ok = time.time()
+            fails = 0
+            try:
+                while not self._stop:
+                    if not cap.grab():
+                        fails += 1
+                        if fails > 10 or (time.time() - last_ok) > 12.0:
+                            log.warning(
+                                f"[MainRing] cam{cam}: stream lost (fails={fails}), "
+                                f"reconnecting in {RECONNECT_INTERVAL}s"
+                            )
+                            break
+                        time.sleep(0.02)
+                        continue
+                    fails = 0
+                    now = time.time()
+                    if now - last_keep >= self._interval_s:
+                        ok, frame = cap.retrieve()
+                        if ok and frame is not None and frame.size > 0:
+                            last_keep = now
+                            last_ok = now
+                            self.put_frame(cam, now, frame)
+                            if not logged_connect:
+                                h, w = frame.shape[:2]
+                                log.info(
+                                    f"[MainRing] cam{cam} connected: {w}x{h} "
+                                    f"({_mask_url(used_url)}, ring={self._maxlen} @ {self._interval_s:.2f}s)"
+                                )
+                                logged_connect = True
+                    elif (now - last_ok) > 15.0:
+                        log.warning(f"[MainRing] cam{cam}: retrieve stalled >15s, reconnecting")
+                        break
+            except Exception as e:
+                log.warning(f"[MainRing] cam{cam} reader error: {e}")
+            finally:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            if not self._stop:
+                time.sleep(RECONNECT_INTERVAL)
+
+
 # ── Probe: queue detections from all streams in the batch ─────────────────────
 class ObjectDetector(BatchMetadataOperator):
-    def __init__(self, event_queue, stats_registry, streams):
+    def __init__(self, event_queue, stats_registry, streams, main_ring=None):
         super().__init__()
         self._q = event_queue
         self._stats = stats_registry
         self._streams = streams
+        self._main_ring = main_ring
+        self._throttle_lock = threading.Lock()
         self._last_save = {}
+        self._last_confirmed_save = {}
+        self._last_pending = {}
+        self._rejected_boxes = {}   # (camera_id, cls) -> deque of {bbox_norm, at}
         self._event_ids = self._seed_event_ids()
         if self._event_ids:
             log.info(f"[Detect] event ids continue after snapshots/ max: {self._event_ids}")
-        self._track_seen = {}   # (camera_id, track_id) -> {count, emitted, last}
+        self._track_seen = {}   # (camera_id, track_id) -> {count, emitted, last, samples, ...}
         # Per-camera class drops (DROP_CLASSES_CAMn in .env, see
         # streams_config.py) — e.g. bicycle on the office cams, where it
         # fires on empty rooms (notes/motorcycle_rejects_eyeball.md).
@@ -753,6 +1036,61 @@ class ObjectDetector(BatchMetadataOperator):
         self._event_ids[camera_id] = n
         return n
 
+    def on_vlm_reject(self, det):
+        """Release the street-cam save throttle when VLM rejects a false
+        positive, so a real vehicle right behind it is never blocked. Also
+        remember the rejected bbox briefly so a static bush whose tracker ID
+        flickers doesn't re-queue every second."""
+        if det.get("is_office", False):
+            return
+        key = (det["camera_id"], det["class_id"])
+        evt_id = det.get("event_id")
+        bbox_norm = det.get("bbox_norm")
+        now = time.time()
+        with self._throttle_lock:
+            pend = self._last_pending.get(key)
+            if pend is None or pend.get("event_id") == evt_id:
+                self._last_pending.pop(key, None)
+                prev_conf = self._last_confirmed_save.get(key, 0.0)
+                if prev_conf > 0.0:
+                    self._last_save[key] = prev_conf
+                else:
+                    self._last_save.pop(key, None)
+            if bbox_norm is not None:
+                dq = self._rejected_boxes.get(key)
+                if dq is None:
+                    dq = collections.deque(maxlen=8)
+                    self._rejected_boxes[key] = dq
+                dq.append({"bbox_norm": bbox_norm, "at": now})
+
+    def on_vlm_confirm(self, det):
+        """Lock in the save throttle timestamp once VLM confirms an object."""
+        key = (det["camera_id"], det["class_id"])
+        t_ev = float(det.get("queued_at") or time.time())
+        with self._throttle_lock:
+            if t_ev >= self._last_confirmed_save.get(key, 0.0):
+                self._last_confirmed_save[key] = t_ev
+            if t_ev >= self._last_save.get(key, 0.0):
+                self._last_save[key] = t_ev
+            pend = self._last_pending.get(key)
+            if pend and pend.get("event_id") == det.get("event_id"):
+                self._last_pending.pop(key, None)
+
+    def _is_static_rejected_fp(self, key, bbox_norm, conf, track_disp, now):
+        """True if bbox_norm sits on top of a recently VLM-rejected static
+        false-positive box with low/moderate confidence and minimal motion."""
+        if bbox_norm is None or conf >= 0.75 or track_disp >= 0.04:
+            return False
+        dq = self._rejected_boxes.get(key)
+        if not dq:
+            return False
+        while dq and (now - dq[0]["at"]) > STREET_REJECT_BBOX_TTL_S:
+            dq.popleft()
+        for r in dq:
+            if _bbox_iou(bbox_norm, r["bbox_norm"]) >= 0.50:
+                return True
+        return False
+
     def handle_metadata(self, batch_meta):
         now = time.time()
         # Forget track ids we haven't seen recently so the dict can't grow
@@ -791,9 +1129,12 @@ class ObjectDetector(BatchMetadataOperator):
                 stats.bump("detections")
                 min_conf = class_min_conf(DETECT_MIN_CONF[label], gates.get(label),
                                           minute_of_day)
-                if obj_meta.confidence < min_conf:
+                conf = float(obj_meta.confidence)
+                if conf < min_conf:
                     stats.bump("low_conf")
                     continue
+
+                bbox_norm = _extract_bbox_norm(obj_meta, frame_meta)
 
                 # Per-object dedup via tracker id: emit once per unique track.
                 # The tracker's probationAge already discards single-frame
@@ -806,29 +1147,80 @@ class ObjectDetector(BatchMetadataOperator):
                     tkey = (camera_id, tid)
                     te = self._track_seen.get(tkey)
                     if te is None:
-                        te = {"count": 0, "emitted": False, "last": now}
+                        te = {
+                            "count": 0,
+                            "emitted": False,
+                            "first": now,
+                            "last": now,
+                            "first_bbox": bbox_norm,
+                            "last_bbox": bbox_norm,
+                            "best_conf": conf,
+                            "samples": collections.deque(maxlen=25),
+                        }
                         self._track_seen[tkey] = te
                     te["count"] += 1
                     te["last"] = now
+                    if bbox_norm is not None:
+                        te["last_bbox"] = bbox_norm
+                        if te.get("first_bbox") is None:
+                            te["first_bbox"] = bbox_norm
+                    if conf > te.get("best_conf", 0.0):
+                        te["best_conf"] = conf
+                    te["samples"].append((now, round(conf, 3), bbox_norm))
                     if te["emitted"] or te["count"] < MIN_TRACK_HITS:
                         stats.bump("dedup")
                         continue
 
                 key = (camera_id, cls)
-                # Throttle per (camera, class) as a backstop against tracker-id
-                # churn / untracked frames. Office cams use a long interval;
-                # street cams a shorter one so real passing traffic is captured.
                 throttle = SAVE_INTERVAL if is_office else STREET_SAVE_INTERVAL
-                if now - self._last_save.get(key, 0) < throttle:
-                    stats.bump("throttled")
-                    continue
-                self._last_save[key] = now
+                track_disp = (
+                    _bbox_center_dist(te.get("first_bbox"), bbox_norm)
+                    if (te is not None and te.get("first_bbox") is not None and bbox_norm is not None)
+                    else 1.0
+                )
+                with self._throttle_lock:
+                    if not is_office and self._is_static_rejected_fp(
+                            key, bbox_norm, conf, track_disp, now):
+                        stats.bump("throttled")
+                        stats.bump("static_fp_throttled")
+                        continue
+                    last_t = self._last_save.get(key, 0.0)
+                    if now - last_t < throttle:
+                        if is_office or (now - self._last_confirmed_save.get(key, 0.0) < throttle):
+                            stats.bump("throttled")
+                            continue
+                        # Street cam with an unconfirmed event currently in-flight:
+                        # allow a distinct high-conf or moving object at a non-overlapping
+                        # bbox to proceed instead of being blocked by a pending bush FP.
+                        pend = self._last_pending.get(key)
+                        can_bypass = (
+                            pend is not None
+                            and bbox_norm is not None
+                            and pend.get("bbox_norm") is not None
+                            and _bbox_iou(bbox_norm, pend["bbox_norm"]) < 0.30
+                            and (conf >= 0.70 or track_disp >= 0.04)
+                        )
+                        if not can_bypass:
+                            stats.bump("throttled")
+                            continue
+                    event_id = self._next_event_id(camera_id)
+                    self._last_save[key] = now
+                    if is_office:
+                        self._last_confirmed_save[key] = now
+                    else:
+                        self._last_pending[key] = {
+                            "event_id": event_id,
+                            "at": now,
+                            "bbox_norm": bbox_norm,
+                            "conf": conf,
+                        }
+
                 if te is not None:
                     te["emitted"] = True
-                event_id = self._next_event_id(camera_id)
                 log.info(
                     f"[Detect] cam{camera_id} {label} "
-                    f"conf={obj_meta.confidence:.2f} evt={event_id}"
+                    f"conf={conf:.2f} evt={event_id}"
+                    + (f" track={tid}" if tracked else "")
                 )
                 if self._q.qsize() >= VLM_QUEUE_MAX:
                     if is_office:
@@ -855,14 +1247,22 @@ class ObjectDetector(BatchMetadataOperator):
                             f"[Detect] VLM queue full but queuing street cam{camera_id} "
                             f"evt={event_id} (protecting real traffic)"
                         )
+                pinned_main = []
+                if self._main_ring is not None and self._main_ring.has_camera(camera_id):
+                    pinned_main = self._main_ring.get_window(camera_id, now - 1.2, now + 0.1)
                 now_dt = datetime.datetime.now(tz=LOCAL_TZ)
                 self._q.put({
                     "class_id":    cls,
                     "label":       label,
-                    "confidence":  round(float(obj_meta.confidence), 3),
+                    "confidence":  round(conf, 3),
                     "pts_ns":      int(pts_ns),
                     "source_id":   int(source_id),
                     "camera_id":   camera_id,
+                    "is_office":   is_office,
+                    "track_id":    tid if tracked else None,
+                    "bbox_norm":   bbox_norm,
+                    "track_entry": te,
+                    "pinned_main": pinned_main,
                     "wall_time":   now_dt.isoformat(),
                     "wall_time_s": round(now_dt.timestamp(), 3),
                     "event_id":    event_id,
@@ -1170,7 +1570,193 @@ def _claim_event_name(base, jpeg_bytes, collection=None, directory=SNAPSHOT_DIR)
     raise RuntimeError(f"no free snapshot name for {base}")
 
 
-def vlm_worker(event_queue, stats_registry):
+def _select_best_main_and_sample(det, main_ring):
+    """Match the vehicle's track samples [(t_obs, conf, bbox_norm), ...]
+    against buffered main-stream frames [(t_main, frame_bgr), ...], preferring
+    full (non-edge-clipped), larger, high-confidence observations with tight
+    timestamp alignment."""
+    camera_id = det["camera_id"]
+    t_det = float(det.get("queued_at") or time.time())
+    cands_by_ts = {}
+    for ts, frm in (det.get("pinned_main") or ()):
+        cands_by_ts[round(float(ts), 4)] = (float(ts), frm)
+    if main_ring is not None and main_ring.has_camera(camera_id):
+        for ts, frm in main_ring.get_window(camera_id, t_det - 1.2, t_det + 3.0):
+            cands_by_ts[round(float(ts), 4)] = (float(ts), frm)
+        if not cands_by_ts:
+            ts, frm, _ = main_ring.get_closest(camera_id, t_det, max_gap_s=MAIN_RING_MAX_GAP_S)
+            if ts is not None and frm is not None:
+                cands_by_ts[round(float(ts), 4)] = (float(ts), frm)
+    main_cands = sorted(cands_by_ts.values(), key=lambda x: x[0])
+
+    te = det.get("track_entry")
+    samples = list(te["samples"]) if (te and te.get("samples")) else []
+    if not samples:
+        samples = [(t_det, float(det.get("confidence", 0.5)), det.get("bbox_norm"))]
+
+    if not main_cands:
+        # No main stream for this camera (e.g. cam6): pick best track sample
+        best_s = max(
+            samples,
+            key=lambda s: (
+                (((s[2][2] - s[2][0]) * (s[2][3] - s[2][1])) ** 0.65 if s[2] else 0.1)
+                * float(s[1])
+                * (0.5 if (s[2] and (s[2][0] <= 0.01 or s[2][1] <= 0.01 or s[2][2] >= 0.99 or s[2][3] >= 0.99)) else 1.0)
+            ),
+        )
+        return None, None, best_s[2] or det.get("bbox_norm"), float(best_s[1]), len(samples), None
+
+    best_score = -1.0
+    best_pick = None
+    for s_ts, s_conf, s_box in samples:
+        m_ts, m_frm = min(main_cands, key=lambda m: abs(m[0] - s_ts))
+        gap = abs(m_ts - s_ts)
+        if s_box:
+            area = max(1e-4, (s_box[2] - s_box[0]) * (s_box[3] - s_box[1]))
+            edge = (s_box[0] <= 0.01 or s_box[1] <= 0.01
+                    or s_box[2] >= 0.99 or s_box[3] >= 0.99)
+            edge_fac = 0.55 if edge else 1.0
+        else:
+            area = 0.05
+            edge_fac = 1.0
+        sync_fac = (1.0 - 0.5 * gap) if gap <= 0.5 else max(0.2, 0.5 / (1.0 + gap))
+        score = (area ** 0.65) * float(s_conf) * edge_fac * sync_fac
+        if score > best_score:
+            best_score = score
+            best_pick = (m_ts, m_frm, s_box or det.get("bbox_norm"), float(s_conf), len(samples), round(gap, 3))
+
+    return best_pick
+
+
+def _save_vehicle_event(det, doc_id, snap_name, jpeg_bytes, description, backend,
+                        main_ring=None, stats=None):
+    """Save high-res main frame + vehicle crop (cam3-5) and substream crop
+    (cam3-6) under snapshots/vehicles/ and log structured metadata to
+    logs/vehicle_events.jsonl. Never raises into vlm_worker."""
+    extra_meta = {}
+    try:
+        import cv2
+        import numpy as np
+
+        os.makedirs(VEHICLE_SNAPSHOT_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(VEHICLE_EVENTS_LOG) or ".", exist_ok=True)
+
+        camera_id = det["camera_id"]
+        bbox_norm = det.get("bbox_norm")
+        track_id = det.get("track_id")
+
+        # 1. Decode substream snapshot and write substream crop
+        sub_img = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        sub_shape = None
+        sub_bbox = None
+        sub_crop_rel = None
+        sub_crop_shape = None
+        if sub_img is not None and sub_img.size > 0:
+            sh, sw = sub_img.shape[:2]
+            sub_shape = [int(sh), int(sw)]
+            if bbox_norm:
+                sub_bbox = _norm_to_px_box(bbox_norm, sw, sh, pad_frac=0.0)
+                cbox = _norm_to_px_box(bbox_norm, sw, sh, pad_frac=VEHICLE_SUB_PAD)
+                if cbox:
+                    scrop = sub_img[cbox[1]:cbox[3], cbox[0]:cbox[2]]
+                    if scrop.size > 0:
+                        sub_crop_name = f"{doc_id}_sub_crop.jpg"
+                        sub_crop_disk = os.path.join(VEHICLE_SNAPSHOT_DIR, sub_crop_name)
+                        cv2.imwrite(sub_crop_disk, scrop, [cv2.IMWRITE_JPEG_QUALITY, MAIN_JPEG_QUALITY])
+                        sub_crop_rel = f"snapshots/vehicles/{sub_crop_name}"
+                        sub_crop_shape = [int(scrop.shape[0]), int(scrop.shape[1])]
+
+        # 2. Select best main-stream frame & matched track bbox (cam3, cam4, cam5)
+        m_ts, m_frm, m_bbox_norm, best_conf, track_hits, m_gap_s = _select_best_main_and_sample(
+            det, main_ring
+        )
+        main_shape = None
+        main_raw_bbox = None
+        main_bbox = None
+        main_frame_rel = None
+        main_crop_rel = None
+        main_crop_shape = None
+        if m_frm is not None and m_frm.size > 0:
+            mh, mw = m_frm.shape[:2]
+            main_shape = [int(mh), int(mw)]
+            main_frame_name = f"{doc_id}_main.jpg"
+            main_frame_disk = os.path.join(VEHICLE_SNAPSHOT_DIR, main_frame_name)
+            cv2.imwrite(main_frame_disk, m_frm, [cv2.IMWRITE_JPEG_QUALITY, MAIN_JPEG_QUALITY])
+            main_frame_rel = f"snapshots/vehicles/{main_frame_name}"
+            use_norm = m_bbox_norm or bbox_norm
+            if use_norm:
+                main_raw_bbox = _norm_to_px_box(use_norm, mw, mh, pad_frac=0.0)
+                main_bbox = _norm_to_px_box(use_norm, mw, mh, pad_frac=VEHICLE_MAIN_PAD)
+                if main_bbox:
+                    mcrop = m_frm[main_bbox[1]:main_bbox[3], main_bbox[0]:main_bbox[2]]
+                    if mcrop.size > 0:
+                        main_crop_name = f"{doc_id}_main_crop.jpg"
+                        main_crop_disk = os.path.join(VEHICLE_SNAPSHOT_DIR, main_crop_name)
+                        cv2.imwrite(main_crop_disk, mcrop, [cv2.IMWRITE_JPEG_QUALITY, MAIN_JPEG_QUALITY])
+                        main_crop_rel = f"snapshots/vehicles/{main_crop_name}"
+                        main_crop_shape = [int(mcrop.shape[0]), int(mcrop.shape[1])]
+
+        rec = {
+            "timestamp":         det["wall_time"],
+            "timestamp_s":       det["wall_time_s"],
+            "cam":               camera_id,
+            "evt_id":            det["event_id"],
+            "doc_id":            doc_id,
+            "track_id":          track_id,
+            "cls":               det["label"],
+            "conf":              det["confidence"],
+            "best_conf":         round(float(best_conf), 3),
+            "track_hits":        int(track_hits),
+            "sub_shape":         sub_shape,
+            "sub_bbox":          sub_bbox,
+            "sub_bbox_norm":     bbox_norm,
+            "sub_snapshot_path": f"snapshots/{snap_name}",
+            "sub_crop_path":     sub_crop_rel,
+            "sub_crop_shape":    sub_crop_shape,
+            "main_shape":        main_shape,
+            "main_raw_bbox":     main_raw_bbox,
+            "main_bbox":         main_bbox,
+            "main_frame_ts":     round(float(m_ts), 3) if m_ts is not None else None,
+            "main_track_gap_s":  m_gap_s,
+            "main_frame_path":   main_frame_rel,
+            "main_crop_path":    main_crop_rel,
+            "main_crop_shape":   main_crop_shape,
+            "vlm_backend":       backend,
+            "vlm_model":         VLLM_MODEL if backend == "vllm" else VLM_MODEL,
+            "vlm_description":   description,
+        }
+        with _vehicle_log_lock:
+            with open(VEHICLE_EVENTS_LOG, "a") as fh:
+                fh.write(json.dumps(rec) + "\n")
+
+        if stats is not None:
+            stats.bump("vehicle_saves")
+
+        log.info(
+            f"[Vehicle] cam{camera_id} evt={det['event_id']} track={track_id} "
+            f"sub_crop={sub_crop_shape} main_crop={main_crop_shape}"
+        )
+
+        # Scalar metadata for ChromaDB (no None or list values allowed in Chroma)
+        if track_id is not None:
+            extra_meta["track_id"] = int(track_id)
+        if sub_bbox is not None:
+            extra_meta["sub_bbox"] = ",".join(str(x) for x in sub_bbox)
+        if sub_crop_rel is not None:
+            extra_meta["sub_crop_path"] = "/" + sub_crop_rel
+        if main_frame_rel is not None:
+            extra_meta["main_frame_path"] = "/" + main_frame_rel
+        if main_crop_rel is not None:
+            extra_meta["main_crop_path"] = "/" + main_crop_rel
+        if main_crop_shape is not None:
+            extra_meta["main_crop_h"] = int(main_crop_shape[0])
+            extra_meta["main_crop_w"] = int(main_crop_shape[1])
+    except Exception as e:
+        log.warning(f"[Vehicle] could not save vehicle assets for {doc_id}: {e}")
+    return extra_meta
+
+
+def vlm_worker(event_queue, stats_registry, detector=None, main_ring=None):
     import base64
 
     # Retry: at boot Chroma may not be accepting connections yet, and an
@@ -1216,11 +1802,20 @@ def vlm_worker(event_queue, stats_registry):
                 f"[VLM] cam{camera_id} evt={det['event_id']} SKIP stale "
                 f"(waited {age:.0f}s > {MAX_EVENT_AGE_S:.0f}s in queue)"
             )
+            if detector is not None:
+                detector.on_vlm_reject(det)
             stats.bump("stale_skip")
             stats.write(queue_depth=event_queue.qsize())
             continue
 
         try:
+            # Pin any main-stream frames captured up to worker start before VLM call
+            if main_ring is not None and main_ring.has_camera(camera_id):
+                pre_frames = main_ring.get_window(camera_id, det["queued_at"] - 1.2, time.time() + 0.1)
+                if pre_frames:
+                    merged = list(det.get("pinned_main") or ()) + pre_frames
+                    det["pinned_main"] = merged
+
             jpeg_bytes, jpeg_is_stale, jpeg_gap_s = get_jpeg_after(
                 det["queued_at"], camera_id=camera_id
             )
@@ -1229,6 +1824,8 @@ def vlm_worker(event_queue, stats_registry):
                     f"[VLM] No fresh frame within timeout, "
                     f"skipping cam{camera_id} evt={det['event_id']}"
                 )
+                if detector is not None:
+                    detector.on_vlm_reject(det)
                 stats.bump("no_frame")
                 stats.write(queue_depth=event_queue.qsize())
                 continue
@@ -1243,6 +1840,8 @@ def vlm_worker(event_queue, stats_registry):
                     f"stale frame (gap {jpeg_gap_s:.0f}s > "
                     f"{VLM_STALE_FRAME_MAX_GAP_S:.0f}s, no VLM call)"
                 )
+                if detector is not None:
+                    detector.on_vlm_reject(det)
                 stats.bump("stale_frame_skip")
                 stats.write(queue_depth=event_queue.qsize())
                 continue
@@ -1261,6 +1860,8 @@ def vlm_worker(event_queue, stats_registry):
             # there, it's a detector false positive — drop it (don't embed
             # or persist an empty-scene "car").
             if _vlm_says_absent(description, det["label"]):
+                if detector is not None:
+                    detector.on_vlm_reject(det)
                 log.info(
                     f"[VLM] cam{camera_id} evt={det['event_id']} REJECT "
                     f"{det['label']} (VLM sees none): {description[:70]} [{backend}]"
@@ -1271,6 +1872,9 @@ def vlm_worker(event_queue, stats_registry):
                         jpeg_is_stale, jpeg_gap_s):
                     stats.bump("reject_frames_saved")
                 continue
+
+            if detector is not None:
+                detector.on_vlm_confirm(det)
 
             log.info(
                 f"[VLM] cam{camera_id} evt={det['event_id']} "
@@ -1291,9 +1895,16 @@ def vlm_worker(event_queue, stats_registry):
                 jpeg_bytes, collection)
             snap_name = f"{doc_id}.jpg"
 
+            extra_meta = {}
+            if det["label"] in VEHICLE_CLASSES and not det.get("is_office", False):
+                extra_meta = _save_vehicle_event(
+                    det, doc_id, snap_name, jpeg_bytes, description, backend,
+                    main_ring=main_ring, stats=stats,
+                )
+
             try:
                 _chroma_add(collection, embedding, description, det, camera_id,
-                            snap_name, backend, doc_id)
+                            snap_name, backend, doc_id, extra_meta=extra_meta)
             except Exception:
                 # Don't leave an orphan snapshot with no Chroma record.
                 try:
@@ -1311,25 +1922,30 @@ def vlm_worker(event_queue, stats_registry):
 
 
 def _chroma_add(collection, embedding, description, det, camera_id, snap_name,
-                backend, doc_id):
+                backend, doc_id, extra_meta=None):
+    meta = {
+        "timestamp_s":  round(float(det["pts_ns"] / 1e9), 3),
+        "timestamp_ns": det["pts_ns"],
+        "wall_time":    det["wall_time"],
+        "wall_time_s":  det["wall_time_s"],
+        "camera_id":    camera_id,
+        "source_id":    det["source_id"],
+        "class_id":     det["class_id"],
+        "label":        det["label"],
+        "confidence":   det["confidence"],
+        "image_path":   f"/snapshots/{snap_name}",
+        "vlm_backend":  backend,
+        "vlm_model":    VLLM_MODEL if backend == "vllm" else VLM_MODEL,
+        "class_map":    CLASS_MAP_VERSION,
+    }
+    if extra_meta:
+        for k, v in extra_meta.items():
+            if isinstance(v, (str, int, float, bool)):
+                meta[k] = v
     collection.add(
         embeddings=[embedding],
         documents=[description],
-        metadatas=[{
-            "timestamp_s":  round(float(det["pts_ns"] / 1e9), 3),
-            "timestamp_ns": det["pts_ns"],
-            "wall_time":    det["wall_time"],
-            "wall_time_s":  det["wall_time_s"],
-            "camera_id":    camera_id,
-            "source_id":    det["source_id"],
-            "class_id":     det["class_id"],
-            "label":        det["label"],
-            "confidence":   det["confidence"],
-            "image_path":   f"/snapshots/{snap_name}",
-            "vlm_backend":  backend,
-            "vlm_model":    VLLM_MODEL if backend == "vllm" else VLM_MODEL,
-            "class_map":    CLASS_MAP_VERSION,
-        }],
+        metadatas=[meta],
         ids=[doc_id],
     )
 
@@ -1529,7 +2145,8 @@ def main():
     log.info(f"[Main] Starting multi-stream pipeline: {n} camera(s)")
     for s in streams:
         # Host only: RTSP URLs carry credentials (userinfo and/or query string).
-        log.info(f"  cam{s['camera_id']}: {_mask_url(s['url'])} ({s.get('cam_type', 'street')})")
+        m_info = f", main={_mask_url(s['main_url'])}" if s.get("main_url") else ""
+        log.info(f"  cam{s['camera_id']}: {_mask_url(s['url'])} ({s.get('cam_type', 'street')}{m_info})")
 
     # Refuse to start on a class-map mismatch (labels vs config was checked at
     # import; here: labels vs the model's actual output width).
@@ -1547,16 +2164,19 @@ def main():
     log.info("[Detect] min conf: " + ", ".join(f"{k}={v:.2f}" for k, v in DETECT_MIN_CONF.items()))
 
     os.makedirs(SNAPSHOT_DIR, exist_ok=True)
+    os.makedirs(VEHICLE_SNAPSHOT_DIR, exist_ok=True)
 
     stats_registry = StatsRegistry(streams)
     event_queue = queue.Queue()
-    detector = ObjectDetector(event_queue, stats_registry, streams)
+    main_ring = MainStreamRingBuffer(streams, stats_registry=stats_registry)
+    main_ring.start()
+    detector = ObjectDetector(event_queue, stats_registry, streams, main_ring=main_ring)
     stats_registry.write_all()  # fresh files immediately, so monitor sees all cams
 
     workers = [
         threading.Thread(
             target=vlm_worker,
-            args=(event_queue, stats_registry),
+            args=(event_queue, stats_registry, detector, main_ring),
             daemon=True,
         )
         for _ in range(VLM_WORKERS)
