@@ -73,7 +73,9 @@ CREATE TABLE IF NOT EXISTS vehicles (
     is_familiar INTEGER DEFAULT 0,
     rep_crop_path TEXT,
     mean_embedding TEXT,
-    merged_into TEXT NULL
+    merged_into TEXT NULL,
+    custom_label INTEGER DEFAULT 0,
+    notes TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS passes (
@@ -129,6 +131,11 @@ def init_db(db_path=VEHICLE_DB_PATH):
     conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA_SQL)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(vehicles)").fetchall()}
+    if "custom_label" not in cols:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN custom_label INTEGER DEFAULT 0")
+    if "notes" not in cols:
+        conn.execute("ALTER TABLE vehicles ADD COLUMN notes TEXT DEFAULT ''")
     conn.commit()
     return conn
 
@@ -837,8 +844,10 @@ class VehicleReidWorker:
         plate_partial = v["plate_partial"] if v["plate_partial"] else (attrs.get("plate_partial") or "")
 
         label = v["label"]
-        if not label or "unknown" in label.lower() or (v["make_model"] == "unknown" and make_model != "unknown"):
-            label = attrs.get("label") or _build_vehicle_label(v["cls"], color, body_type, roof_trim, make_model)
+        has_custom_label = int(v["custom_label"] or 0) == 1 if "custom_label" in v.keys() else False
+        if not has_custom_label:
+            if not label or "unknown" in label.lower() or (v["make_model"] == "unknown" and make_model != "unknown"):
+                label = attrs.get("label") or _build_vehicle_label(v["cls"], color, body_type, roof_trim, make_model)
 
         self.conn.execute(
             """
@@ -1027,6 +1036,357 @@ class VehicleReidWorker:
             f"crop={crop_source}({crop_w}x{crop_h})"
         )
         return summary
+
+
+    def recompute_vehicle_from_db(self, vehicle_id):
+        """Recompute all rollup fields and L2-normalized mean_embedding for vehicle_id from its current passes & sightings."""
+        v = self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (vehicle_id,)).fetchone()
+        if v is None:
+            return None
+        sights = self.conn.execute(
+            "SELECT * FROM sightings WHERE vehicle_id = ? ORDER BY timestamp_s ASC, sighting_id ASC",
+            (vehicle_id,),
+        ).fetchall()
+        passes = self.conn.execute(
+            "SELECT * FROM passes WHERE vehicle_id = ? ORDER BY start_ts ASC, pass_id ASC",
+            (vehicle_id,),
+        ).fetchall()
+        if not sights:
+            self.conn.execute(
+                """
+                UPDATE vehicles
+                SET sighting_count = 0, pass_count = 0, cameras_seen = '[]'
+                WHERE vehicle_id = ?
+                """,
+                (vehicle_id,),
+            )
+            self.conn.commit()
+            return dict(self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (vehicle_id,)).fetchone())
+
+        sighting_count = len(sights)
+        pass_count = len(passes)
+        first_ts = float(sights[0]["timestamp_s"])
+        first_iso = sights[0]["timestamp_iso"]
+        last_ts = float(sights[-1]["timestamp_s"])
+        last_iso = sights[-1]["timestamp_iso"]
+
+        cams = []
+        vecs = []
+        weights = []
+        best_area = -1
+        rep_crop = v["rep_crop_path"]
+
+        color = v["color"] or "unknown"
+        body_type = v["body_type"] or "unknown"
+        roof_trim = v["roof_trim"] or "none"
+        make_model = v["make_model"] or "unknown"
+        plate_partial = v["plate_partial"] or ""
+
+        for s in sights:
+            c = s["cam"]
+            if c and c not in cams:
+                cams.append(c)
+            area = int(s["crop_w"] or 0) * int(s["crop_h"] or 0)
+            if s["crop_path"] and area >= best_area:
+                best_area = area
+                rep_crop = s["crop_path"]
+            if s["embedding"]:
+                try:
+                    vec = np.asarray(json.loads(s["embedding"]), dtype=np.float32)
+                    if vec.size > 0:
+                        vecs.append(vec)
+                        weights.append(1.5 if area >= 120000 else 1.0)
+                except Exception:
+                    pass
+            if s["attrs_json"]:
+                try:
+                    at = json.loads(s["attrs_json"])
+                    if color in ("unknown", "") and at.get("color") and at.get("color") != "unknown":
+                        color = at["color"]
+                    if body_type in ("unknown", "") and at.get("body_type") and at.get("body_type") != "unknown":
+                        body_type = at["body_type"]
+                    if roof_trim in ("none", "unknown", "") and at.get("roof_trim") and at.get("roof_trim") not in ("none", "unknown"):
+                        roof_trim = at["roof_trim"]
+                    if make_model in ("unknown", "") and at.get("make_model") and at.get("make_model") != "unknown":
+                        make_model = at["make_model"]
+                    if not plate_partial and at.get("plate_partial"):
+                        plate_partial = at["plate_partial"]
+                except Exception:
+                    pass
+
+        mean_emb_json = v["mean_embedding"]
+        if vecs:
+            w_arr = np.asarray(weights, dtype=np.float32)[:, None]
+            stacked = np.stack(vecs, axis=0)
+            mean_emb = l2_normalize(np.sum(stacked * w_arr, axis=0))
+            mean_emb_json = json.dumps(mean_emb)
+
+        # Refresh each pass start/end/cameras from its sightings
+        for idx, p_row in enumerate(passes):
+            pid = p_row["pass_id"]
+            p_sights = [s for s in sights if int(s["pass_id"] or 0) == int(pid)]
+            if not p_sights:
+                self.conn.execute("DELETE FROM passes WHERE pass_id = ?", (pid,))
+                continue
+            p_cams = []
+            for s in p_sights:
+                if s["cam"] and s["cam"] not in p_cams:
+                    p_cams.append(s["cam"])
+            p_start = min(float(s["timestamp_s"]) for s in p_sights)
+            p_end = max(float(s["timestamp_s"]) for s in p_sights)
+            p_iso = p_sights[0]["timestamp_iso"]
+            is_new = 1 if idx == 0 else 0
+            self.conn.execute(
+                "UPDATE passes SET start_ts = ?, end_ts = ?, start_iso = ?, cameras = ?, is_new_vehicle = ? WHERE pass_id = ?",
+                (p_start, p_end, p_iso, json.dumps(p_cams), is_new, pid),
+            )
+
+        pass_count = self.conn.execute("SELECT COUNT(*) AS c FROM passes WHERE vehicle_id = ?", (vehicle_id,)).fetchone()["c"]
+        is_familiar = 1 if (pass_count >= 2 or int(v["is_familiar"] or 0) == 1) else 0
+
+        label = v["label"]
+        has_custom = int(v["custom_label"] or 0) == 1 if "custom_label" in v.keys() else False
+        if not has_custom and (not label or "unknown" in label.lower()):
+            label = _build_vehicle_label(v["cls"], color, body_type, roof_trim, make_model)
+
+        self.conn.execute(
+            """
+            UPDATE vehicles
+            SET label = ?, color = ?, body_type = ?, roof_trim = ?, make_model = ?, plate_partial = ?,
+                first_seen_ts = ?, first_seen_iso = ?, last_seen_ts = ?, last_seen_iso = ?,
+                sighting_count = ?, pass_count = ?, cameras_seen = ?, is_familiar = ?,
+                rep_crop_path = ?, mean_embedding = ?
+            WHERE vehicle_id = ?
+            """,
+            (
+                label, color, body_type, roof_trim, make_model, plate_partial,
+                first_ts, first_iso, last_ts, last_iso,
+                sighting_count, pass_count, json.dumps(cams), is_familiar,
+                rep_crop, mean_emb_json, vehicle_id,
+            ),
+        )
+        self.conn.commit()
+        return dict(self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (vehicle_id,)).fetchone())
+
+    def update_vehicle_details(self, vehicle_id, updates):
+        v = self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (vehicle_id,)).fetchone()
+        if v is None:
+            raise ValueError(f"Unknown vehicle_id: {vehicle_id}")
+
+        label = v["label"]
+        custom_label = int(v["custom_label"] or 0) if "custom_label" in v.keys() else 0
+        if "label" in updates and updates["label"] is not None:
+            new_lbl = str(updates["label"]).strip()
+            if new_lbl:
+                label = new_lbl
+                custom_label = int(updates.get("custom_label", 1))
+        elif "custom_label" in updates and updates["custom_label"] is not None:
+            custom_label = int(updates["custom_label"])
+
+        is_familiar = int(v["is_familiar"] or 0)
+        if "is_familiar" in updates and updates["is_familiar"] is not None:
+            is_familiar = 1 if int(updates["is_familiar"]) else 0
+
+        color = str(updates.get("color", v["color"] or "unknown")).strip() or "unknown"
+        body_type = str(updates.get("body_type", v["body_type"] or "unknown")).strip() or "unknown"
+        roof_trim = str(updates.get("roof_trim", v["roof_trim"] or "none")).strip() or "none"
+        make_model = str(updates.get("make_model", v["make_model"] or "unknown")).strip() or "unknown"
+        plate_partial = str(updates.get("plate_partial", v["plate_partial"] or "")).strip()
+        notes = str(updates.get("notes", v["notes"] if "notes" in v.keys() and v["notes"] else "")).strip()
+
+        self.conn.execute(
+            """
+            UPDATE vehicles
+            SET label = ?, custom_label = ?, is_familiar = ?, color = ?, body_type = ?,
+                roof_trim = ?, make_model = ?, plate_partial = ?, notes = ?
+            WHERE vehicle_id = ?
+            """,
+            (label, custom_label, is_familiar, color, body_type, roof_trim, make_model, plate_partial, notes, vehicle_id),
+        )
+        # If familiarity was explicitly toggled, also reflect on sightings.is_unfamiliar
+        if "is_familiar" in updates and updates["is_familiar"] is not None:
+            unfam = 0 if is_familiar else 1
+            self.conn.execute("UPDATE sightings SET is_unfamiliar = ? WHERE vehicle_id = ?", (unfam, vehicle_id))
+        self.conn.commit()
+
+        sights = self.conn.execute("SELECT doc_id, pass_id, is_unfamiliar FROM sightings WHERE vehicle_id = ?", (vehicle_id,)).fetchall()
+        for s in sights:
+            self._update_chroma_metadata(s["doc_id"], vehicle_id, label, s["pass_id"], s["is_unfamiliar"])
+
+        return dict(self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (vehicle_id,)).fetchone())
+
+    def merge_vehicles(self, source_id, target_id):
+        if source_id == target_id:
+            raise ValueError("source_id and target_id must be different")
+        src = self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (source_id,)).fetchone()
+        tgt = self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (target_id,)).fetchone()
+        if src is None:
+            raise ValueError(f"Unknown source vehicle_id: {source_id}")
+        if tgt is None:
+            raise ValueError(f"Unknown target vehicle_id: {target_id}")
+        if tgt["merged_into"]:
+            raise ValueError(f"Target vehicle {target_id} is already merged into {tgt['merged_into']}")
+
+        src_sights = self.conn.execute("SELECT doc_id, pass_id FROM sightings WHERE vehicle_id = ?", (source_id,)).fetchall()
+
+        # Reassign passes and sightings from source_id to target_id
+        self.conn.execute("UPDATE passes SET vehicle_id = ? WHERE vehicle_id = ?", (target_id, source_id))
+        self.conn.execute("UPDATE sightings SET vehicle_id = ? WHERE vehicle_id = ?", (target_id, source_id))
+        # Also redirect any older vehicle that had merged_into = source_id
+        self.conn.execute("UPDATE vehicles SET merged_into = ? WHERE merged_into = ?", (target_id, source_id))
+        # Mark source_id as merged into target_id
+        was_familiar = 1 if (int(src["is_familiar"] or 0) == 1 or int(tgt["is_familiar"] or 0) == 1) else 0
+        if was_familiar:
+            self.conn.execute("UPDATE vehicles SET is_familiar = 1 WHERE vehicle_id = ?", (target_id,))
+        # Preserve custom label if source had one and target did not
+        if int(src["custom_label"] or 0) == 1 and int(tgt["custom_label"] or 0) == 0:
+            self.conn.execute(
+                "UPDATE vehicles SET label = ?, custom_label = 1 WHERE vehicle_id = ?",
+                (src["label"], target_id),
+            )
+        self.conn.execute(
+            "UPDATE vehicles SET merged_into = ?, sighting_count = 0, pass_count = 0 WHERE vehicle_id = ?",
+            (target_id, source_id),
+        )
+        self.conn.commit()
+
+        updated_tgt = self.recompute_vehicle_from_db(target_id)
+        if int(updated_tgt.get("is_familiar") or 0) == 1:
+            self.conn.execute("UPDATE sightings SET is_unfamiliar = 0 WHERE vehicle_id = ?", (target_id,))
+            self.conn.commit()
+
+        all_tgt_sights = self.conn.execute(
+            "SELECT doc_id, pass_id, is_unfamiliar FROM sightings WHERE vehicle_id = ?",
+            (target_id,),
+        ).fetchall()
+        for s in all_tgt_sights:
+            self._update_chroma_metadata(
+                s["doc_id"], target_id, updated_tgt["label"], s["pass_id"], s["is_unfamiliar"]
+            )
+        return updated_tgt
+
+    def split_vehicle_items(self, sighting_ids=None, pass_ids=None, target_vehicle_id="new"):
+        sighting_ids = [int(x) for x in (sighting_ids or []) if x is not None]
+        pass_ids = [int(x) for x in (pass_ids or []) if x is not None]
+        if not sighting_ids and not pass_ids:
+            raise ValueError("Provide at least one sighting_id or pass_id to split")
+
+        rows = []
+        if pass_ids:
+            ph = ",".join("?" for _ in pass_ids)
+            rows.extend(self.conn.execute(f"SELECT * FROM sightings WHERE pass_id IN ({ph})", tuple(pass_ids)).fetchall())
+        if sighting_ids:
+            ph = ",".join("?" for _ in sighting_ids)
+            rows.extend(self.conn.execute(f"SELECT * FROM sightings WHERE sighting_id IN ({ph})", tuple(sighting_ids)).fetchall())
+
+        by_sid = {int(r["sighting_id"]): r for r in rows}
+        if not by_sid:
+            raise ValueError("No matching sightings found for split")
+
+        affected_Sightings = sorted(by_sid.values(), key=lambda r: float(r["timestamp_s"]))
+        source_vids = sorted({r["vehicle_id"] for r in affected_Sightings if r["vehicle_id"]})
+
+        first_s = affected_Sightings[0]
+        cls = first_s["cls"] or "car"
+        attrs = json.loads(first_s["attrs_json"] or "{}")
+        emb = json.loads(first_s["embedding"] or "[]")
+        ts_s = float(first_s["timestamp_s"])
+        ts_iso = first_s["timestamp_iso"]
+        cam_str = first_s["cam"]
+
+        created_new = False
+        if not target_vehicle_id or target_vehicle_id == "new":
+            target_vid = self._next_vehicle_id()
+            created_new = True
+            color = attrs.get("color") or "unknown"
+            body_type = attrs.get("body_type") or ("bicycle" if cls == "bicycle" else "unknown")
+            roof_trim = attrs.get("roof_trim") or "none"
+            make_model = attrs.get("make_model") or "unknown"
+            plate_partial = attrs.get("plate_partial") or ""
+            label = attrs.get("label") or _build_vehicle_label(cls, color, body_type, roof_trim, make_model)
+            self.conn.execute(
+                """
+                INSERT INTO vehicles (
+                    vehicle_id, cls, label, color, body_type, roof_trim, make_model, plate_partial,
+                    first_seen_ts, first_seen_iso, last_seen_ts, last_seen_iso,
+                    sighting_count, pass_count, cameras_seen, is_familiar, rep_crop_path, mean_embedding, merged_into,
+                    custom_label, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 0, ?, ?, NULL, 0, '')
+                """,
+                (
+                    target_vid, cls, label, color, body_type, roof_trim, make_model, plate_partial,
+                    ts_s, ts_iso, ts_s, ts_iso, json.dumps([cam_str]), first_s["crop_path"], json.dumps(emb),
+                ),
+            )
+        else:
+            target_vid = str(target_vehicle_id).strip()
+            t_row = self.conn.execute("SELECT * FROM vehicles WHERE vehicle_id = ?", (target_vid,)).fetchone()
+            if t_row is None:
+                raise ValueError(f"Unknown target_vehicle_id: {target_vid}")
+            if t_row["merged_into"]:
+                raise ValueError(f"Target vehicle {target_vid} is merged into {t_row['merged_into']}")
+
+        # Move whole passes when all sightings of that pass are included; otherwise create a dedicated pass for split sightings
+        sids_set = set(by_sid.keys())
+        moved_pass_ids = set(pass_ids)
+        for pid in list({int(r["pass_id"]) for r in affected_Sightings if r["pass_id"] is not None}):
+            all_in_pass = self.conn.execute("SELECT sighting_id FROM sightings WHERE pass_id = ?", (pid,)).fetchall()
+            if all(int(x["sighting_id"]) in sids_set for x in all_in_pass):
+                moved_pass_ids.add(pid)
+
+        for pid in moved_pass_ids:
+            self.conn.execute(
+                "UPDATE passes SET vehicle_id = ?, match_method = 'manual_split' WHERE pass_id = ?",
+                (target_vid, pid),
+            )
+            self.conn.execute(
+                "UPDATE sightings SET vehicle_id = ? WHERE pass_id = ?",
+                (target_vid, pid),
+            )
+
+        orphan_sights = [r for r in affected_Sightings if int(r["pass_id"] or 0) not in moved_pass_ids]
+        if orphan_sights:
+            o_cams = []
+            for r in orphan_sights:
+                if r["cam"] and r["cam"] not in o_cams:
+                    o_cams.append(r["cam"])
+            o_start = min(float(r["timestamp_s"]) for r in orphan_sights)
+            o_end = max(float(r["timestamp_s"]) for r in orphan_sights)
+            o_iso = orphan_sights[0]["timestamp_iso"]
+            direction = _infer_direction(orphan_sights[0]["cam"], attrs, orphan_sights[0]["vlm_description"] or "")
+            cur = self.conn.execute(
+                """
+                INSERT INTO passes (vehicle_id, start_ts, end_ts, start_iso, direction, cameras, is_new_vehicle, match_score, match_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, 'manual_split')
+                """,
+                (target_vid, o_start, o_end, o_iso, direction, json.dumps(o_cams), 1 if created_new else 0),
+            )
+            new_pid = int(cur.lastrowid)
+            for r in orphan_sights:
+                self.conn.execute(
+                    "UPDATE sightings SET vehicle_id = ?, pass_id = ? WHERE sighting_id = ?",
+                    (target_vid, new_pid, int(r["sighting_id"])),
+                )
+
+        self.conn.commit()
+        updated_target = self.recompute_vehicle_from_db(target_vid)
+        updated_sources = []
+        for svid in source_vids:
+            if svid != target_vid:
+                rem = self.conn.execute("SELECT COUNT(*) AS c FROM sightings WHERE vehicle_id = ?", (svid,)).fetchone()["c"]
+                if rem == 0:
+                    self.conn.execute("UPDATE vehicles SET merged_into = ?, sighting_count = 0, pass_count = 0 WHERE vehicle_id = ?", (target_vid, svid))
+                    self.conn.commit()
+                else:
+                    updated_sources.append(self.recompute_vehicle_from_db(svid))
+
+        for r in self.conn.execute("SELECT doc_id, pass_id, is_unfamiliar FROM sightings WHERE vehicle_id = ?", (target_vid,)).fetchall():
+            self._update_chroma_metadata(r["doc_id"], target_vid, updated_target["label"], r["pass_id"], r["is_unfamiliar"])
+
+        return {
+            "target_vehicle": updated_target,
+            "updated_source_vehicles": updated_sources,
+        }
 
     def sync_all_pending(self):
         if not os.path.exists(VEHICLE_EVENTS_LOG):
